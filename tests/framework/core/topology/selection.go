@@ -25,6 +25,9 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/wso2/api-platform/tests/framework/core/catalog/shared"
+	"github.com/wso2/api-platform/tests/framework/core/components"
 )
 
 // Selection narrows the blocks, runners, and coverage mode used for a run.
@@ -137,8 +140,12 @@ func (s Selection) Apply(resolved *Resolved) (*Resolved, error) {
 			for j := range block.Components {
 				component := &block.Components[j]
 				if component.Def != nil && component.Def.Name == "platform-gateway" {
+					def := component.Def
+					if shared.IsPatchVersion(version) {
+						def = rewriteGatewayPatchRegistry(def)
+					}
 					var err error
-					component.Def, err = component.Def.WithReleaseVersion(version)
+					component.Def, err = def.WithReleaseVersion(version)
 					if err != nil {
 						return nil, fmt.Errorf("topology: block %q: %w", block.Name, err)
 					}
@@ -308,6 +315,37 @@ func combineTags(runnerTags, selectionTags string) string {
 	default:
 		return runnerTags + " && " + selectionTags
 	}
+}
+
+func rewriteGatewayPatchRegistry(def *components.Definition) *components.Definition {
+	if def == nil {
+		return def
+	}
+	out := *def
+	out.Image.Ref = rewriteToPatchRegistry(out.Image.Ref)
+	if out.Compose != nil {
+		compose := *out.Compose
+		if compose.Env != nil {
+			env := make(map[string]string, len(compose.Env))
+			for key, value := range compose.Env {
+				if strings.HasSuffix(key, "_IMAGE") {
+					value = rewriteToPatchRegistry(value)
+				}
+				env[key] = value
+			}
+			compose.Env = env
+		}
+		out.Compose = &compose
+	}
+	return &out
+}
+
+func rewriteToPatchRegistry(ref string) string {
+	root := shared.GatewayReleaseRegistry + "/"
+	if !strings.HasPrefix(ref, root) {
+		return ref
+	}
+	return shared.GatewayPatchRegistryRoot() + "/" + strings.TrimPrefix(ref, root)
 }
 
 func cloneBlock(block ResolvedBlock) ResolvedBlock {
