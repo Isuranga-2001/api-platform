@@ -67,7 +67,7 @@ policies:
   - name: respond
     gomodule: github.com/wso2/gateway-controllers/policies/respond@v1
   - name: semantic-cache
-    gomodule: github.com/wso2/gateway-controllers/policies/semantic-cache@v1
+    gomodule: github.com/wso2/gateway-controllers/policies/semantic-cache@v1.0.1
   - name: semantic-prompt-guard
     gomodule: github.com/wso2/gateway-controllers/policies/semantic-prompt-guard@v1
   - name: semantic-tool-filtering
