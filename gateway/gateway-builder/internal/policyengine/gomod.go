@@ -30,6 +30,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wso2/api-platform/gateway/gateway-builder/pkg/goenv"
 	"github.com/wso2/api-platform/gateway/gateway-builder/pkg/types"
 	"golang.org/x/mod/modfile"
 )
@@ -61,6 +62,7 @@ func UpdateGoMod(srcDir string, policies []*types.DiscoveredPolicy) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		cmd := exec.CommandContext(ctx, "go", "get", target)
 		cmd.Dir = srcDir
+		cmd.Env = goenv.WithToolchain(cmd.Environ())
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		if err := cmd.Run(); err != nil {
