@@ -317,6 +317,23 @@ func TestBuildVersionedWithPoliciesUsesGatewayBuilderAndDerivedImages(t *testing
 	require.Contains(t, strings.Join(runner.commands[2].Args, " "), "gateway-controller/Dockerfile")
 }
 
+func TestGatewayBuilderImageFollowsTheBaseImageRepository(t *testing.T) {
+	cases := []struct {
+		name, controllerBase, want string
+	}{
+		{"release registry", "ghcr.io/wso2/api-platform/gateway-controller:1.1.0", "ghcr.io/wso2/api-platform/gateway-builder:1.1.0"},
+		{"host override", "docker.io/isurangaws/gateway-controller:1.1.0", "docker.io/isurangaws/gateway-builder:1.1.0"},
+		{"registry with a port", "registry.example:5000/team/gateway-controller:1.1.0", "registry.example:5000/team/gateway-builder:1.1.0"},
+		{"unrecognised base image", "local/custom:1.1.0", "ghcr.io/wso2/api-platform/gateway-builder:1.1.0"},
+		{"empty base image", "", "ghcr.io/wso2/api-platform/gateway-builder:1.1.0"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, gatewayBuilderImage(tc.controllerBase, "1.1.0"))
+		})
+	}
+}
+
 func TestPolicyWorkspaceRejectsNonPolicyEntries(t *testing.T) {
 	root := unitRepoRoot(t)
 	source, err := os.MkdirTemp(root, ".framework-policy-source-")

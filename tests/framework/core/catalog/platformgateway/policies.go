@@ -31,6 +31,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/wso2/api-platform/tests/framework/core/builder"
+	"github.com/wso2/api-platform/tests/framework/core/catalog/shared"
 )
 
 const (
@@ -460,7 +461,7 @@ func sourcePolicyBuildCommands(
 func versionedPolicyBuildCommands(
 	repoRoot, version string, workspace policyWorkspace, controllerBase, runtimeBase string, images DerivedImages,
 ) []builder.Command {
-	builderImage := "ghcr.io/wso2/api-platform/gateway-builder:" + version
+	builderImage := gatewayBuilderImage(controllerBase, version)
 	return []builder.Command{
 		{
 			Directory: repoRoot,
@@ -487,6 +488,14 @@ func versionedPolicyBuildCommands(
 			},
 		},
 	}
+}
+
+func gatewayBuilderImage(controllerBase, version string) string {
+	const controllerRepository = "/gateway-controller:"
+	if i := strings.LastIndex(controllerBase, controllerRepository); i > 0 {
+		return controllerBase[:i] + "/gateway-builder:" + version
+	}
+	return shared.GatewayReleaseRegistry + "/gateway-builder:" + version
 }
 
 func derivedImages(version, digest string) DerivedImages {
