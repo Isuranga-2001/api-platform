@@ -317,6 +317,23 @@ func TestBuildVersionedWithPoliciesUsesGatewayBuilderAndDerivedImages(t *testing
 	require.Contains(t, strings.Join(runner.commands[2].Args, " "), "gateway-controller/Dockerfile")
 }
 
+func TestGatewayBuilderImageFollowsTheBaseImageRepository(t *testing.T) {
+	cases := []struct {
+		name, controllerBase, want string
+	}{
+		{"release registry", "ghcr.io/wso2/api-platform/gateway-controller:1.1.0", "ghcr.io/wso2/api-platform/gateway-builder:1.1.0"},
+		{"host override", "docker.io/isurangaws/gateway-controller:1.1.0", "docker.io/isurangaws/gateway-builder:1.1.0"},
+		{"registry with a port", "registry.example:5000/team/gateway-controller:1.1.0", "registry.example:5000/team/gateway-builder:1.1.0"},
+		{"unrecognised base image", "local/custom:1.1.0", "ghcr.io/wso2/api-platform/gateway-builder:1.1.0"},
+		{"empty base image", "", "ghcr.io/wso2/api-platform/gateway-builder:1.1.0"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, gatewayBuilderImage(tc.controllerBase, "1.1.0"))
+		})
+	}
+}
+
 func TestPolicyWorkspaceRejectsNonPolicyEntries(t *testing.T) {
 	root := unitRepoRoot(t)
 	source, err := os.MkdirTemp(root, ".framework-policy-source-")
@@ -382,4 +399,38 @@ func TestVersionedPolicyBuildDoesNotReturnImagesAfterCommandFailure(t *testing.T
 	require.ErrorContains(t, err, "versioned policy build command 2")
 	require.Empty(t, images.Controller)
 	require.Empty(t, images.Runtime)
+}
+
+func TestStagePolicyWorkspaceExcludesIntegrationTests(t *testing.T) {
+	root := unitRepoRoot(t)
+	source, err := os.MkdirTemp(root, ".framework-policy-source-")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(source)) })
+	dir := filepath.Join(source, "a-policy")
+	features := filepath.Join(dir, "it", "features")
+	require.NoError(t, os.MkdirAll(features, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "policy-definition.yaml"), []byte("name: a-policy\nversion: v1.0.0\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "policy.go"), []byte("package policy\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(features, "a.feature"), []byte("Feature: a\n"), 0o644))
+	relative, err := filepath.Rel(root, source)
+	require.NoError(t, err)
+
+	stage := func() policyWorkspace {
+		workspace, err := stagePolicyWorkspace(root, relative)
+		require.NoError(t, err)
+		t.Cleanup(workspace.close)
+		return workspace
+	}
+
+	first := stage()
+	staged := filepath.Join(first.Policies, "a-policy")
+	require.FileExists(t, filepath.Join(staged, "policy.go"))
+	require.FileExists(t, filepath.Join(staged, "policy-definition.yaml"))
+	require.NoDirExists(t, filepath.Join(staged, "it"))
+
+	require.NoError(t, os.WriteFile(filepath.Join(features, "a.feature"), []byte("Feature: a, edited\n"), 0o644))
+	require.Equal(t, first.Digest, stage().Digest, "editing a feature must not change the image digest")
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "policy.go"), []byte("package policy // edited\n"), 0o644))
+	require.NotEqual(t, first.Digest, stage().Digest, "editing policy code must change the image digest")
 }
