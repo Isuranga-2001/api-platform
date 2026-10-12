@@ -32,6 +32,20 @@ name: Gateway Latest Image
 # Remove this commit before the upstream pull request.
 
 on:
+  # TEMP: run the build when a pull request that changes the gateway is merged into the fork's
+  # main-test branch. The push trigger below did not start a run on this branch. Remove this
+  # trigger before the upstream pull request.
+  pull_request:
+    branches:
+      - main-test
+    types: [closed]
+    paths:
+      - 'gateway/**'
+      - 'common/**'
+      - 'httpkit/**'
+      - 'sdk/**'
+      - 'sdk-python/**'
+      - '.github/workflows/gateway-latest-image.yml'
   push:
     # TEMP: the fork's test branch stands in for main while this workflow is proven. Use `main`
     # in the upstream pull request.
@@ -57,6 +71,8 @@ permissions:
 jobs:
   publish:
     name: Build and push the latest gateway images
+    # A pull request that is closed without merging builds nothing.
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
@@ -66,10 +82,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          # For a merged pull request this is the commit the merge created on the base branch.
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           persist-credentials: false
 
       - name: Resolve the image registry and tag
         id: image
+        env:
+          MERGE_COMMIT_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
           set -euo pipefail
           # The registry follows the repository owner, so the same workflow publishes to
@@ -77,7 +97,8 @@ jobs:
           # needs a lowercase name.
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           echo "registry=ghcr.io/${owner}/api-platform" >> "$GITHUB_OUTPUT"
-          echo "tag=main-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          sha="${MERGE_COMMIT_SHA:-$GITHUB_SHA}"
+          echo "tag=main-${sha::7}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
