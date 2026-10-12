@@ -28,6 +28,9 @@
 
 name: Gateway Latest Image
 
+# TEMP: this comment exists only to push the workflow file again and retrigger it on main-test.
+# Remove this commit before the upstream pull request.
+
 on:
   push:
     # TEMP: the fork's test branch stands in for main while this workflow is proven. Use `main`
