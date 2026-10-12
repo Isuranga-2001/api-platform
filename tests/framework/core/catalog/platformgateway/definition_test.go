@@ -276,7 +276,7 @@ func TestStagePolicyWorkspaceGeneratesDeterministicManifest(t *testing.T) {
 
 	relative, err := filepath.Rel(root, source)
 	require.NoError(t, err)
-	workspace, err := stagePolicyWorkspace(root, relative, nil)
+	workspace, err := stagePolicyWorkspace(root, relative, nil, true)
 	require.NoError(t, err)
 	data, err := os.ReadFile(workspace.BuildFile)
 	require.NoError(t, err)
@@ -356,7 +356,7 @@ func TestPolicyWorkspaceRejectsSourceOutsideApprovedRoots(t *testing.T) {
 	source, err := filepath.Rel(root, outside)
 	require.NoError(t, err)
 
-	_, err = stagePolicyWorkspace(root, source, nil)
+	_, err = stagePolicyWorkspace(root, source, nil, true)
 	require.ErrorContains(t, err, "must resolve within repository root or ../gateway-controllers/policies")
 }
 
@@ -437,7 +437,7 @@ func TestStagePolicyWorkspaceStagesOnlyTheNamedPolicies(t *testing.T) {
 	require.NoError(t, err)
 
 	staged := func(only map[string]bool) []string {
-		workspace, err := stagePolicyWorkspace(root, relative, only)
+		workspace, err := stagePolicyWorkspace(root, relative, only, false)
 		require.NoError(t, err)
 		t.Cleanup(workspace.close)
 		data, err := os.ReadFile(workspace.BuildFile)
@@ -495,7 +495,7 @@ func TestStagePolicyWorkspaceExcludesIntegrationTests(t *testing.T) {
 	require.NoError(t, err)
 
 	stage := func() policyWorkspace {
-		workspace, err := stagePolicyWorkspace(root, relative, nil)
+		workspace, err := stagePolicyWorkspace(root, relative, nil, true)
 		require.NoError(t, err)
 		t.Cleanup(workspace.close)
 		return workspace
@@ -512,4 +512,72 @@ func TestStagePolicyWorkspaceExcludesIntegrationTests(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "policy.go"), []byte("package policy // edited\n"), 0o644))
 	require.NotEqual(t, first.Digest, stage().Digest, "editing policy code must change the image digest")
+}
+
+// A project that imports the framework has no api-platform checkout. The version profiles and
+// overlays the gateway needs must come from the framework's embedded copies.
+func TestReleasedGatewayConfigAssemblesWithoutACheckout(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("HOME", cache)
+	t.Setenv("XDG_CACHE_HOME", cache)
+	definition := PlatformGateway()
+
+	for _, version := range []string{"1.1.0", "1.2.0"} {
+		injection, err := definition.Config.ForVersion(version)
+		require.NoError(t, err, version)
+
+		out, err := components.Assemble(injection, t.TempDir(), "", components.Vars{components.VarBlock: "unit"})
+
+		require.NoError(t, err, version)
+		require.NotEmpty(t, out, version)
+	}
+}
+
+// writeMinimalPolicyProject creates a project that has a policy tree and nothing else, the
+// shape of a repository that imports the framework and has no gateway source.
+func writeMinimalPolicyProject(t *testing.T) string {
+	t.Helper()
+	cache := t.TempDir()
+	t.Setenv("HOME", cache)
+	t.Setenv("XDG_CACHE_HOME", cache)
+	root := t.TempDir()
+	dir := filepath.Join(root, "policies", "a-policy")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "policy-definition.yaml"), []byte("name: a-policy\nversion: v1.0.0\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "policy.go"), []byte("package policy\n"), 0o644))
+	return root
+}
+
+func TestVersionedPolicyWorkspaceNeedsNoGatewaySource(t *testing.T) {
+	root := writeMinimalPolicyProject(t)
+
+	workspace, err := stagePolicyWorkspace(root, "policies", nil, false)
+	require.NoError(t, err)
+	t.Cleanup(workspace.close)
+
+	require.FileExists(t, workspace.BuildFile)
+	require.NoDirExists(t, workspace.Target)
+
+	_, err = stagePolicyWorkspace(root, "policies", nil, true)
+	require.ErrorContains(t, err, "staging LICENSE")
+}
+
+func TestBuildVersionedWithPoliciesNeedsNoGatewaySource(t *testing.T) {
+	root := writeMinimalPolicyProject(t)
+	runner := &policyRecordingRunner{}
+
+	images, err := BuildVersionedWithPolicies(context.Background(), root, "1.2.0", "policies",
+		"ghcr.io/wso2/api-platform/gateway-controller:1.2.0", "ghcr.io/wso2/api-platform/gateway-runtime:1.2.0", runner, false)
+
+	require.NoError(t, err)
+	require.NotEmpty(t, images.Controller)
+	require.NotEmpty(t, images.Runtime)
+	require.Len(t, runner.commands, 3)
+	require.Contains(t, runner.commands[0].Args, "ghcr.io/wso2/api-platform/gateway-builder:1.2.0")
+	for _, command := range runner.commands {
+		require.Equal(t, root, command.Directory)
+		for _, arg := range command.Args {
+			require.NotContains(t, arg, filepath.Join(root, "gateway"), "a released-version build must not read gateway source")
+		}
+	}
 }

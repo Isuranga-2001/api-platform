@@ -85,6 +85,9 @@ framework/
   core/cleanup/     owner-tagged resource registry
   core/util/        HTTP, retry, runner context, and unique-name helpers
   core/taxonomy/    capability-map lint and coverage-tree renderer
+  core/assets/      resolves repository-relative files: workspace first, embedded copy second
+  core/suiterun/    the exported suite entry (Main and Run) any project's test binary calls
+  snapshots/        embedded copies of the gateway schemas and pricing file the engine reads
 suites/
   it/  cloud/  ui/
 ```
@@ -102,6 +105,46 @@ their step contracts.
 
 Each package's `doc.go` carries its charter and the invariants it exists to protect. Read those
 before changing one — most encode a failure mode that presents as a passing test.
+
+## Using the framework from another repository
+
+The framework is a Go module, `github.com/wso2/api-platform/tests/framework`, released with the
+tag `tests/framework/vX.Y.Z` by the `Tests Framework Release` workflow. A project that owns its
+features, step definitions and resource templates imports it and runs without an api-platform
+checkout:
+
+```go
+func TestMain(m *testing.M) { suiterun.Main(m, options()) }
+func TestIntegrationSuite(t *testing.T) { suiterun.Run(t, options()) }
+```
+
+`options()` returns a `suiterun.Options` carrying the project's step definitions and cleanup
+handlers. `Main` registers the suite flags (`-blocks`, `-policies`, `-gateway-version`, `-host`,
+`-coverage`, `-logs`), and `Run` loads the suite file beside the test, builds images, applies the
+selection and runs the runners. Composing another step registrar around the one `Steps` returns
+adds project steps on top of imported ones.
+
+Paths in a suite resolve against the *workspace root*, the nearest ancestor of the suite that
+holds `go.work` or `.git`, or `Options.WorkspaceRoot`. A policy tree named by `addPoliciesFrom`
+is relative to it. The files the framework itself reads from the repository — compose files,
+gateway version profiles, configuration overlays, the gateway database schemas and the LLM
+pricing file — are embedded: `core/assets` uses the workspace copy when one exists, so a run
+inside the api-platform checkout reads live source, and the embedded copy otherwise. The
+gateway's key material (listener certificate and key, AES key) is generated per run, never
+stored. Only the gateway is embedded today; a block that needs another product's files still
+needs the api-platform checkout.
+
+The default testbench image follows the framework version in the importing binary: release
+`vX.Y.Z` runs against `ghcr.io/wso2/api-platform/testbench:X.Y.Z`. A framework built from a
+checkout, a `replace` or an untagged revision uses the locally built `:test` image, and
+`APIP_IT_IMAGE_TESTBENCH` overrides either.
+
+Keeping the embedded copies equal to their source is checked by the unit tests and by the
+release workflow. After changing a gateway schema or the pricing file, refresh the copies:
+
+```bash
+make snapshots
+```
 
 ## The division of labour
 
