@@ -65,6 +65,8 @@ func main() {
 	unitRoot := flag.String("unit-root", ".", "framework root for unit-test layout checks")
 	suites := flag.String("suites", "", "comma-separated product suite YAML files")
 	docs := flag.String("docs", "core", "framework source directory for documentation checks")
+	approvedImports := flag.String("approved-imports", "",
+		"optional comma-separated import-path prefixes step definitions may also import, such as the importing project's own step packages")
 	flag.Parse()
 
 	issues := checkSteps(*steps)
@@ -76,7 +78,7 @@ func main() {
 	issues = append(issues, checkUnitTestLayout(*unitRoot)...)
 	issues = append(issues, checkSuiteYAMLs(*suites)...)
 	issues = append(issues, checkCleanupRegistration(*steps)...)
-	issues = append(issues, checkDependencies(*steps)...)
+	issues = append(issues, checkDependencies(*steps, splitRoots(*approvedImports))...)
 	issues = append(issues, checkDocumentation(*docs)...)
 	sort.Strings(issues)
 	for _, issue := range issues {
@@ -382,7 +384,9 @@ var approvedStepImports = map[string]struct{}{
 	"gopkg.in/yaml.v3":                    {},
 }
 
-func checkDependencies(root string) []string {
+// checkDependencies reports step-definition imports outside the approved set. extraPrefixes
+// are import-path prefixes a project that imports the framework adds for its own packages.
+func checkDependencies(root string, extraPrefixes []string) []string {
 	if strings.TrimSpace(root) == "" {
 		return nil
 	}
@@ -402,7 +406,7 @@ func checkDependencies(root string) []string {
 		}
 		for _, spec := range file.Imports {
 			importPath := strings.Trim(spec.Path.Value, `"`)
-			if !isApprovedStepImport(importPath) {
+			if !isApprovedStepImport(importPath, extraPrefixes) {
 				issues = append(issues, fmt.Sprintf("%s:%d: import %q is not approved for step definitions", path, fileSet.Position(spec.Pos()).Line, importPath))
 			}
 		}
@@ -414,14 +418,22 @@ func checkDependencies(root string) []string {
 	return issues
 }
 
-func isApprovedStepImport(importPath string) bool {
+func isApprovedStepImport(importPath string, extraPrefixes []string) bool {
 	if _, ok := approvedStepImports[importPath]; ok {
 		return true
 	}
 	if isStandardLibraryImport(importPath) {
 		return true
 	}
-	return strings.HasPrefix(importPath, "github.com/wso2/api-platform/tests/framework/")
+	if strings.HasPrefix(importPath, "github.com/wso2/api-platform/tests/framework/") {
+		return true
+	}
+	for _, prefix := range extraPrefixes {
+		if strings.HasPrefix(importPath, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func isStandardLibraryImport(importPath string) bool {
