@@ -206,11 +206,15 @@ Platform Gateway controller and runtime only. It must be used together with
 `-gateway-version`; the version remains the Gateway release used for configuration,
 management paths, and compatibility selection. For example, the command above pulls
 `registry.example/test-gateway/gateway-controller:1.1.0` and
-`registry.example/test-gateway/gateway-runtime:1.1.0`.
+`registry.example/test-gateway/gateway-runtime:1.1.0`. A policy image built on a release uses
+that release's `gateway-builder` from `ghcr.io/wso2/api-platform`, whatever `-host` says, because
+a repository that mirrors or patches a release's controller and runtime need not publish the
+builder.
 
 `-gateway-version latest` pulls the images that `gateway-latest-image.yml` publishes after each
 merge to `main` (`gateway-controller`, `gateway-runtime` and `gateway-builder`, tagged `latest`
 and `main-<sha>`), so a project that has no gateway source can test against the current gateway.
+With `-host`, all three images, the builder included, come from that repository.
 It is not a release: it uses the current configuration and contract, runners are matched as they
 are for a source build (`gateway-version>=1.2.0` runs, `gateway-version<1.2.0` is skipped), and
 policy images built on it are re-pulled each run because the tag moves.

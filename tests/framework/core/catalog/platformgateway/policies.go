@@ -528,7 +528,7 @@ func versionedPolicyBuildCommands(
 	// The published latest images move with every merge, so a copy pulled earlier must not be
 	// reused. A release tag never changes, so its local copy is.
 	runPull, buildPull := []string{}, []string{}
-	if version == "latest" {
+	if version == latestVersion {
 		runPull, buildPull = []string{"--pull", "always"}, []string{"--pull"}
 	}
 	return []builder.Command{
@@ -559,10 +559,20 @@ func versionedPolicyBuildCommands(
 	}
 }
 
+// latestVersion is the tag of the gateway images published after each merge to main.
+const latestVersion = "latest"
+
+// gatewayBuilderImage returns the gateway-builder image for a gateway version. A release's
+// builder comes from the release registry: -host replaces the controller and runtime images of
+// a release, which a mirror may patch, but not the builder, which a mirror need not publish. The
+// latest images have no other source than the repository that publishes them, so their builder
+// follows the controller's repository.
 func gatewayBuilderImage(controllerBase, version string) string {
 	const controllerRepository = "/gateway-controller:"
-	if i := strings.LastIndex(controllerBase, controllerRepository); i > 0 {
-		return controllerBase[:i] + "/gateway-builder:" + version
+	if version == latestVersion {
+		if i := strings.LastIndex(controllerBase, controllerRepository); i > 0 {
+			return controllerBase[:i] + "/gateway-builder:" + version
+		}
 	}
 	return shared.GatewayReleaseRegistry + "/gateway-builder:" + version
 }

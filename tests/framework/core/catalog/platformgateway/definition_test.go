@@ -318,19 +318,21 @@ func TestBuildVersionedWithPoliciesUsesGatewayBuilderAndDerivedImages(t *testing
 	require.Contains(t, strings.Join(runner.commands[2].Args, " "), "gateway-controller/Dockerfile")
 }
 
-func TestGatewayBuilderImageFollowsTheBaseImageRepository(t *testing.T) {
+func TestGatewayBuilderImageComesFromTheReleaseRegistryExceptForLatest(t *testing.T) {
 	cases := []struct {
-		name, controllerBase, want string
+		name, controllerBase, version, want string
 	}{
-		{"release registry", "ghcr.io/wso2/api-platform/gateway-controller:1.1.0", "ghcr.io/wso2/api-platform/gateway-builder:1.1.0"},
-		{"host override", "registry.example/test-gateway/gateway-controller:1.1.0", "registry.example/test-gateway/gateway-builder:1.1.0"},
-		{"registry with a port", "registry.example:5000/team/gateway-controller:1.1.0", "registry.example:5000/team/gateway-builder:1.1.0"},
-		{"unrecognised base image", "local/custom:1.1.0", "ghcr.io/wso2/api-platform/gateway-builder:1.1.0"},
-		{"empty base image", "", "ghcr.io/wso2/api-platform/gateway-builder:1.1.0"},
+		{"release", "ghcr.io/wso2/api-platform/gateway-controller:1.1.0", "1.1.0", "ghcr.io/wso2/api-platform/gateway-builder:1.1.0"},
+		{"release with a mirrored controller", "registry.example/test-gateway/gateway-controller:1.1.0", "1.1.0", "ghcr.io/wso2/api-platform/gateway-builder:1.1.0"},
+		{"latest", "ghcr.io/wso2/api-platform/gateway-controller:latest", "latest", "ghcr.io/wso2/api-platform/gateway-builder:latest"},
+		{"latest from another repository", "registry.example/test-gateway/gateway-controller:latest", "latest", "registry.example/test-gateway/gateway-builder:latest"},
+		{"latest from a registry with a port", "registry.example:5000/team/gateway-controller:latest", "latest", "registry.example:5000/team/gateway-builder:latest"},
+		{"latest with an unrecognised base image", "local/custom:latest", "latest", "ghcr.io/wso2/api-platform/gateway-builder:latest"},
+		{"empty base image", "", "1.1.0", "ghcr.io/wso2/api-platform/gateway-builder:1.1.0"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, gatewayBuilderImage(tc.controllerBase, "1.1.0"))
+			require.Equal(t, tc.want, gatewayBuilderImage(tc.controllerBase, tc.version))
 		})
 	}
 }
