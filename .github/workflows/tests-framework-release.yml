@@ -25,6 +25,8 @@
 name: Tests Framework Release
 
 on:
+  push: # TEMP: a workflow that is not on the default branch cannot be dispatched
+    branches: [tmp/release-verify]
   # Releasing is manual-only so a merge never publishes a version by accident.
   workflow_dispatch:
     inputs:
@@ -57,7 +59,7 @@ jobs:
         id: version
         env:
           # The input is untrusted: it is read from the environment, never interpolated into the script.
-          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_VERSION: ${{ inputs.version || '0.0.1' }} # TEMP: default for the push trigger
         run: |
           set -euo pipefail
           VERSION="${INPUT_VERSION#v}"
