@@ -77,10 +77,11 @@ jobs:
           go-version: '1.26.5'
           cache-dependency-path: tests/framework/go.sum
 
-      # A consumer has no checkout to read these files from, so the snapshots the module
-      # embeds must equal the gateway files they copy at the commit being released.
-      - name: Check the embedded snapshots match the repository
-        run: go run ./cmd/syncassets -check
+      # A consumer has no checkout to read these files from, so the module embeds copies of
+      # them. The copies are not committed to main: they are generated here from the gateway
+      # files at the commit being released, and only the release tag carries them.
+      - name: Generate the embedded snapshots
+        run: go run ./cmd/syncassets
 
       - name: Run the framework unit tests
         run: go test ./core/... ./cmd/... -count=1
@@ -112,11 +113,22 @@ jobs:
             -t "${TESTBENCH_REPOSITORY}:${VERSION}" \
             --push .
 
+      # The tag points at a commit that adds the generated snapshots to the released commit.
+      # That commit is on no branch, so main stays free of them while a consumer who downloads
+      # the tagged module gets them. Only the tag is pushed.
       - name: Create and push the tag
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git switch --detach
+          git add -f snapshots
+          if [ "$(git ls-files -- snapshots | wc -l)" -lt 2 ]; then
+            echo "Error: the generated snapshots were not added to the release commit"
+            exit 1
+          fi
+          git commit -m "Tests framework ${VERSION}: embed the generated snapshots"
           git tag -a "tests/framework/v${VERSION}" -m "Tests framework ${VERSION}"
           git push origin "tests/framework/v${VERSION}"
