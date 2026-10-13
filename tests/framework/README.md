@@ -127,6 +127,12 @@ gateway, skips the test instead of failing it. Both are checked by `cmd/standard
 accepts several feature directories and, with `-approved-imports`, the project's own step
 packages.
 
+Feature files name templates as `resources/templates/<kind>.yaml`. The suite directory is
+searched first and the framework's canonical templates (the ones api-platform's own suite uses)
+are the fallback, so a project keeps only the templates that differ. `Options.CleanupDeleters`
+takes `platformgateway.RegisterDeleters`, which removes what a scenario created through the
+gateway controller's management API.
+
 Paths in a suite resolve against the *workspace root*, the nearest ancestor of the suite that
 holds `go.work` or `.git`, or `Options.WorkspaceRoot`. A policy tree named by `addPoliciesFrom`
 is relative to it. The files the framework itself reads from the repository — compose files,
