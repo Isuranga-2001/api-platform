@@ -24,3 +24,8 @@ blocks:
       - name: apip-gateway
         features:
           - features/apip_gateway.feature
+      # One scenario of an integration-suite feature file, run against the cloud organization.
+      # It needs TESTBENCH_URL (a testbench the gateway can reach) and skips without it.
+      - name: apip-it-smoke
+        features:
+          - ../it/features/management-portal/deployments/api_deployment.feature:34

@@ -274,7 +274,16 @@ var approvedCloudDataPlaneHost = regexp.MustCompile(
 	`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.gateway(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.wso2\.com$`,
 )
 
+// resolveDataPlaneURL returns the approved absolute URL for a data-plane target. A target that
+// starts with a single "/" is a path on the active gateway, which findActiveGateway recorded.
 func (s *Steps) resolveDataPlaneURL(ctx context.Context, target string) (string, error) {
+	if strings.HasPrefix(target, "/") && !strings.HasPrefix(target, "//") {
+		endpoint, err := requiredValue(ctx, keyGatewayEndpoint)
+		if err != nil {
+			return "", fmt.Errorf("resolving data-plane path %q: %w", target, err)
+		}
+		target = endpoint + target
+	}
 	if s != nil && s.dataPlaneURLResolver != nil {
 		return s.dataPlaneURLResolver(ctx, target)
 	}
@@ -355,6 +364,12 @@ func (s *Steps) createProject(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	return s.createProjectWithID(ctx, id)
+}
+
+// createProjectWithID creates a synthetic project with the given handle, registers it for
+// cleanup before the request, and records the created project as the scenario's project.
+func (s *Steps) createProjectWithID(ctx context.Context, id string) error {
 	if err := cleanup.Register(ctx, cleanup.Resource{
 		Kind: cleanup.KindProject, ID: id, Actor: resourceActor, Description: "project " + id,
 	}); err != nil {
