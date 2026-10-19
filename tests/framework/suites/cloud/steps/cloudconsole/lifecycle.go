@@ -364,12 +364,6 @@ func (s *Steps) createProject(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return s.createProjectWithID(ctx, id)
-}
-
-// createProjectWithID creates a synthetic project with the given handle, registers it for
-// cleanup before the request, and records the created project as the scenario's project.
-func (s *Steps) createProjectWithID(ctx context.Context, id string) error {
 	if err := cleanup.Register(ctx, cleanup.Resource{
 		Kind: cleanup.KindProject, ID: id, Actor: resourceActor, Description: "project " + id,
 	}); err != nil {

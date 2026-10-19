@@ -38,6 +38,9 @@ const (
 	itBackendEndpoint = "backend"
 	// itHealthPath is the operation the IT deployment scenarios invoke.
 	itHealthPath = "/health"
+
+	// keyITProjectHandle is the handle the scenario gave the project that itCreateProject selected.
+	keyITProjectHandle = "cloudITProjectHandle"
 )
 
 // registerITBridge binds, against the cloud API, the phrases that integration-suite feature files
@@ -79,12 +82,19 @@ func (s *Steps) itAuthenticate(ctx context.Context, _ string) error {
 	return s.obtainToken(ctx)
 }
 
+// itCreateProject selects the organization's default project for the project the scenario
+// names. An organization's subscription limits how many projects it may hold (creating another
+// returns 402 quota_exceeded), and apip-basic already runs in the default project, so nothing
+// is created and nothing needs cleanup.
 func (s *Steps) itCreateProject(ctx context.Context, handle string) error {
 	id, err := itHandle(ctx, handle)
 	if err != nil {
 		return err
 	}
-	return s.createProjectWithID(ctx, id)
+	if err := s.findDefaultProject(ctx); err != nil {
+		return err
+	}
+	return tcontext.Set(ctx, keyITProjectHandle, id)
 }
 
 // itCreateRESTAPI creates a REST API with one GET /health operation whose upstream is the
@@ -94,7 +104,18 @@ func (s *Steps) itCreateRESTAPI(ctx context.Context, handle, project, apiContext
 	if err != nil {
 		return err
 	}
-	projectID, err := itHandle(ctx, project)
+	named, err := itHandle(ctx, project)
+	if err != nil {
+		return err
+	}
+	selected, err := requiredValue(ctx, keyITProjectHandle)
+	if err != nil {
+		return err
+	}
+	if named != selected {
+		return fmt.Errorf("the scenario puts the API in project %q but selected project %q", named, selected)
+	}
+	projectID, err := requiredValue(ctx, keyProjectID)
 	if err != nil {
 		return err
 	}

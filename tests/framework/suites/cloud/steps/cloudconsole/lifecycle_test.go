@@ -263,6 +263,10 @@ func newPlatformAPIStub(t *testing.T) (*platformAPIStub, *frameworkruntime.Topol
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		if r.Method == http.MethodGet && r.URL.Path == "/projects" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"list": []map[string]any{{"id": "default"}}})
+			return
+		}
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": body["id"]})
 	}))
@@ -281,7 +285,7 @@ func (b *platformAPIStub) body(key string) map[string]any {
 	return b.requests[key]
 }
 
-func TestITCreateRESTAPIPostsTheTestbenchUpstreamAndRegistersCleanup(t *testing.T) {
+func TestITCreateRESTAPIUsesTheDefaultProjectAndTheTestbenchUpstream(t *testing.T) {
 	t.Setenv(cloudConsoleAccessTokenEnv, "console-token")
 	t.Setenv(testbench.EnvURL, "https://hosted.example.com/inbox/")
 	t.Setenv(testbench.EnvEndpointURLPrefix+"BACKEND", "")
@@ -296,7 +300,10 @@ func TestITCreateRESTAPIPostsTheTestbenchUpstreamAndRegistersCleanup(t *testing.
 	steps := &Steps{topo: topo, client: httpx.NewClient(httpx.Options{Timeout: 5 * time.Second})}
 
 	require.NoError(t, steps.itCreateProject(ctx, "${CTX:projectHandle}"))
-	require.Equal(t, "papi-project", stub.body("POST /projects")["id"])
+	require.Nil(t, stub.body("POST /projects"), "the organization's project quota means no project is created")
+	selected, err := requiredValue(ctx, keyProjectID)
+	require.NoError(t, err)
+	require.Equal(t, "default", selected)
 
 	require.NoError(t, steps.itCreateRESTAPI(ctx, "${CTX:apiHandle}", "${CTX:projectHandle}", "${CTX:apiContext}"))
 	id, err := requiredValue(ctx, keyAPIID)
@@ -305,7 +312,7 @@ func TestITCreateRESTAPIPostsTheTestbenchUpstreamAndRegistersCleanup(t *testing.
 
 	api := stub.body("POST /rest-apis")
 	require.Equal(t, "papi-deploy-1", api["id"])
-	require.Equal(t, "papi-project", api["projectId"])
+	require.Equal(t, "default", api["projectId"])
 	require.Equal(t, "/papi-deploy-1", api["context"])
 	require.Equal(t, map[string]any{"main": map[string]any{"url": "https://hosted.example.com/inbox"}}, api["upstream"])
 	operation := api["operations"].([]any)[0].(map[string]any)["request"].(map[string]any)
@@ -315,8 +322,23 @@ func TestITCreateRESTAPIPostsTheTestbenchUpstreamAndRegistersCleanup(t *testing.
 	for _, resource := range registry.Pending() {
 		registered = append(registered, resource.Kind.Name+"/"+resource.ID)
 	}
-	require.Contains(t, registered, cleanup.KindAPI.Name+"/papi-deploy-1")
-	require.Contains(t, registered, cleanup.KindProject.Name+"/papi-project")
+	require.Equal(t, []string{cleanup.KindAPI.Name + "/papi-deploy-1"}, registered, "only the API is created")
+}
+
+func TestITCreateRESTAPIRequiresTheSelectedProject(t *testing.T) {
+	t.Setenv(cloudConsoleAccessTokenEnv, "console-token")
+	t.Setenv(testbench.EnvURL, "https://hosted.example.com")
+	_, topo := newPlatformAPIStub(t)
+	ctx := tcontext.WithLocal(context.Background(), tcontext.NewLocal("cloud-runner"))
+	require.NoError(t, cleanup.Install(ctx, cleanup.NewRegistry(slog.Default())))
+	steps := &Steps{topo: topo, client: httpx.NewClient(httpx.Options{Timeout: 5 * time.Second})}
+
+	err := steps.itCreateRESTAPI(ctx, "api-1", "never-selected", "/api-1")
+	require.Error(t, err, "no project was selected")
+
+	require.NoError(t, steps.itCreateProject(ctx, "project-a"))
+	err = steps.itCreateRESTAPI(ctx, "api-1", "project-b", "/api-1")
+	require.ErrorContains(t, err, `project "project-b" but selected project "project-a"`)
 }
 
 func TestITDeployRESTAPIRequiresTheAPICreatedInTheScenario(t *testing.T) {
