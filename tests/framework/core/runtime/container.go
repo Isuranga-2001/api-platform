@@ -218,7 +218,7 @@ func buildRequest(
 	image := def.Image.Resolve(arch)
 	req := &testcontainers.ContainerRequest{
 		Image:           image,
-		AlwaysPullImage: isFloatingImageTag(image),
+		AlwaysPullImage: image != "" && isFloatingImageTag(image),
 		ExposedPorts:    exposed,
 		Env:             env,
 		Networks:        []string{opts.Network.Name()},

@@ -366,6 +366,28 @@ func TestIsFloatingImageTag(t *testing.T) {
 	require.False(t, isFloatingImageTag("localhost:5000/testbench:0.3.1"))
 }
 
+func TestBuildRequestNeverForcePullsAnEmptyImage(t *testing.T) {
+	net := &Network{name: "test-net", block: "test-block"}
+
+	buildOnly := &components.Definition{
+		Name:  "build-only",
+		Image: components.ImageRef{Build: &components.ImageBuild{Context: "."}},
+	}
+	req, err := buildRequest(buildOnly, Options{Network: net}, "build-only", "amd64", 1)
+	require.NoError(t, err)
+	require.Empty(t, req.Image, "Resolve returns Ref, which is empty for a build-only definition")
+	require.False(t, req.AlwaysPullImage,
+		"an empty resolved image must never be marked for a forced pull")
+
+	pullBased := &components.Definition{
+		Name:  "pull-based",
+		Image: components.ImageRef{Ref: "ghcr.io/wso2/api-platform/testbench:latest"},
+	}
+	req, err = buildRequest(pullBased, Options{Network: net}, "pull-based", "amd64", 1)
+	require.NoError(t, err)
+	require.True(t, req.AlwaysPullImage)
+}
+
 func TestBuildPlanSchema(t *testing.T) {
 	t.Run("the framework applies schema for an external engine", func(t *testing.T) {
 		plan, err := BuildPlan([]Request{{Def: owner("gateway-controller"), Type: components.Postgres}})

@@ -65,6 +65,16 @@ jobs:
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
+      - name: Reject a stale commit for a :latest-only release
+        if: inputs.version == ''
+        run: |
+          set -euo pipefail
+          main_head="$(git ls-remote --heads origin main | cut -f1)"
+          if [ "${main_head}" != "${GITHUB_SHA}" ]; then
+            echo "Error: ${GITHUB_SHA} is not main's current head (${main_head}); refusing to replace :latest from a stale commit. Re-dispatch from the current main."
+            exit 1
+          fi
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
