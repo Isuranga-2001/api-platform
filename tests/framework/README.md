@@ -104,10 +104,13 @@ before changing one — most encode a failure mode that presents as a passing te
 
 ## Using the framework from another repository
 
-The framework is a Go module, `github.com/wso2/api-platform/tests/framework`, released with the
-tag `tests/framework/vX.Y.Z` by the `Tests Framework Release` workflow. A project that owns its
-features, step definitions and resource templates imports it and runs without an api-platform
-checkout:
+The framework is a Go module, `github.com/wso2/api-platform/tests/framework`. The
+`Tests Framework Release` workflow force-moves a single `tests/framework/latest` tag to each
+release commit and publishes its testbench image as a single rolling
+`ghcr.io/wso2/api-platform/testbench:latest` tag, so a consumer picks up each release with the
+same unchanging command — `go get github.com/wso2/api-platform/tests/framework@tests/framework/latest`
+— without tracking a version number anywhere. A project that owns its features, step definitions
+and resource templates imports it and runs without an api-platform checkout:
 
 ```go
 func TestMain(m *testing.M) { suiterun.Main(m, options()) }

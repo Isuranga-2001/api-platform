@@ -20,14 +20,10 @@ name: Tests Framework Release
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to release (MAJOR.MINOR.PATCH, e.g. 0.1.0).'
-        required: true
-        type: string
 
 env:
   TESTBENCH_REPOSITORY: ghcr.io/wso2/api-platform/testbench
+  RELEASE_TAG: tests/framework/latest
 
 jobs:
   release:
@@ -43,26 +39,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Validate the version
-        id: version
-        env:
-          INPUT_VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          VERSION="${INPUT_VERSION#v}"
-          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "Error: '$INPUT_VERSION' is not a MAJOR.MINOR.PATCH version"
-            exit 1
-          fi
-          if git rev-parse "tests/framework/v${VERSION}" >/dev/null 2>&1; then
-            echo "Error: tag tests/framework/v${VERSION} already exists"
-            exit 1
-          fi
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -93,18 +69,14 @@ jobs:
           password: ${{ secrets.API_PLATFORM_BOT_TOKEN }}
 
       - name: Build and push the testbench image
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
         run: |
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             -f testbench/Dockerfile \
-            -t "${TESTBENCH_REPOSITORY}:${VERSION}" \
+            -t "${TESTBENCH_REPOSITORY}:latest" \
             --push .
 
-      - name: Create and push the tag
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
+      - name: Move the release tag to this commit
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -115,6 +87,6 @@ jobs:
             echo "Error: the generated snapshots were not added to the release commit"
             exit 1
           fi
-          git commit -m "Tests framework ${VERSION}: embed the generated snapshots"
-          git tag -a "tests/framework/v${VERSION}" -m "Tests framework ${VERSION}"
-          git push origin "tests/framework/v${VERSION}"
+          git commit -m "Tests framework: embed the generated snapshots"
+          git tag -f "${RELEASE_TAG}"
+          git push --force origin "refs/tags/${RELEASE_TAG}"
