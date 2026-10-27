@@ -29,6 +29,11 @@ on:
 env:
   TESTBENCH_REPOSITORY: ghcr.io/wso2/api-platform/testbench
 
+# Serializes releases: two in-flight runs could otherwise both pass the staleness check below
+# against a moving main, then race to publish.
+concurrency:
+  group: tests-framework-release
+
 jobs:
   release:
     if: github.ref == 'refs/heads/main'
@@ -65,15 +70,25 @@ jobs:
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Reject a stale commit for a :latest-only release
-        if: inputs.version == ''
+      # Always evaluated, so a version release skips moving :latest instead of being rejected
+      # outright — a version input may deliberately target an older commit for a backport.
+      - name: Check whether this commit is main's current head
+        id: freshness
         run: |
           set -euo pipefail
           main_head="$(git ls-remote --heads origin main | cut -f1)"
-          if [ "${main_head}" != "${GITHUB_SHA}" ]; then
-            echo "Error: ${GITHUB_SHA} is not main's current head (${main_head}); refusing to replace :latest from a stale commit. Re-dispatch from the current main."
-            exit 1
+          if [ "${main_head}" = "${GITHUB_SHA}" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::${GITHUB_SHA} is not main's current head (${main_head})"
           fi
+
+      - name: Reject a stale commit for a :latest-only release
+        if: inputs.version == '' && steps.freshness.outputs.current != 'true'
+        run: |
+          echo "Error: refusing to replace :latest from a stale commit. Re-dispatch from the current main."
+          exit 1
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -103,16 +118,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.API_PLATFORM_BOT_TOKEN }}
 
-      # :latest always moves to this build; a version input also publishes an immutable
-      # :VERSION tag, so a consumer pinned to a release isn't affected by the next plain replace.
+      # :latest only moves when this commit is current (see the freshness check above) — a
+      # version release from a stale commit still publishes its own immutable :VERSION tag.
       - name: Build and push the testbench image
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          CURRENT: ${{ steps.freshness.outputs.current }}
         run: |
           set -euo pipefail
-          tags=(-t "${TESTBENCH_REPOSITORY}:latest")
+          tags=()
+          if [ "${CURRENT}" = "true" ]; then
+            tags+=(-t "${TESTBENCH_REPOSITORY}:latest")
+          fi
           if [ -n "${VERSION}" ]; then
             tags+=(-t "${TESTBENCH_REPOSITORY}:${VERSION}")
+          fi
+          if [ "${#tags[@]}" -eq 0 ]; then
+            echo "Error: nothing to publish — a stale commit with no version given"
+            exit 1
           fi
           docker buildx build \
             --platform linux/amd64,linux/arm64 \

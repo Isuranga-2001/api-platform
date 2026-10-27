@@ -218,7 +218,7 @@ func buildRequest(
 	image := def.Image.Resolve(arch)
 	req := &testcontainers.ContainerRequest{
 		Image:           image,
-		AlwaysPullImage: image != "" && isFloatingImageTag(image),
+		AlwaysPullImage: isFloatingImageTag(image),
 		ExposedPorts:    exposed,
 		Env:             env,
 		Networks:        []string{opts.Network.Name()},
@@ -453,19 +453,20 @@ func absPath(repoRoot, p string) string {
 	return assets.Resolve(repoRoot, p)
 }
 
-// floatingImageTags are registry tags whose content can move without the tag changing. "test"
-// is excluded: it's never pushed to a registry, and AlwaysPullImage has no local-image fallback,
-// so marking it floating would hard-fail every local run and this repo's own CI.
-var floatingImageTags = map[string]bool{"latest": true}
+// floatingImageRepository is testbench.imgTestbenchRepository, the one image this framework
+// republishes under a moving :latest tag. Matched by full repository, not just the tag: an
+// operator's env-var image override (shared.Image) is indistinguishable from the framework's
+// own default once resolved, and could itself be a local build conventionally tagged :latest.
+const floatingImageRepository = "ghcr.io/wso2/api-platform/testbench"
 
-// isFloatingImageTag reports whether ref resolves to a floating tag, so the container request
-// should always pull instead of reusing whatever that tag last resolved to locally.
+// isFloatingImageTag reports whether ref is the framework's own rolling testbench release.
 func isFloatingImageTag(ref string) bool {
 	tag := "latest" // Docker's implicit tag when a ref carries none
+	repo := ref
 	if idx := strings.LastIndex(ref, ":"); idx > strings.LastIndex(ref, "/") {
-		tag = ref[idx+1:]
+		repo, tag = ref[:idx], ref[idx+1:]
 	}
-	return floatingImageTags[tag]
+	return repo == floatingImageRepository && tag == "latest"
 }
 
 // applyLimits caps the container's host resources.

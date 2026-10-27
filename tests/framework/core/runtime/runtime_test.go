@@ -355,15 +355,18 @@ func TestServerDefinitionsUseConfiguredImages(t *testing.T) {
 }
 
 func TestIsFloatingImageTag(t *testing.T) {
-	require.True(t, isFloatingImageTag("ghcr.io/wso2/api-platform/testbench:latest"))
-	require.True(t, isFloatingImageTag("postgres"), "no tag at all means Docker's implicit :latest")
-	require.True(t, isFloatingImageTag("localhost:5000/testbench:latest"), "a registry host port is not the tag")
+	require.True(t, isFloatingImageTag("ghcr.io/wso2/api-platform/testbench:latest"),
+		"only the framework's own published :latest is force-pulled")
 
 	require.False(t, isFloatingImageTag("ghcr.io/wso2/api-platform/testbench:test"),
 		"the local-build-only tag is never pushed to a registry, so it must never be force-pulled")
 	require.False(t, isFloatingImageTag("ghcr.io/wso2/api-platform/testbench:0.3.1"))
+	require.False(t, isFloatingImageTag(""), "an empty, build-only resolved image must never be force-pulled")
+	require.False(t, isFloatingImageTag("postgres"), "an upstream image's own :latest default is left alone")
 	require.False(t, isFloatingImageTag("postgres:16-alpine"))
-	require.False(t, isFloatingImageTag("localhost:5000/testbench:0.3.1"))
+	require.False(t, isFloatingImageTag("localhost:5000/testbench:latest"),
+		"a different repository must never be force-pulled, even sharing the tag and image name —"+
+			" this also covers an operator override that happens to be tagged :latest for a local build")
 }
 
 func TestBuildRequestNeverForcePullsAnEmptyImage(t *testing.T) {
