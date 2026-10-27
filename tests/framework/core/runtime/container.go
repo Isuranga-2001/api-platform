@@ -215,14 +215,16 @@ func buildRequest(
 		strategy = wait.ForAll(awaited...).WithStartupTimeout(timeout)
 	}
 
+	image := def.Image.Resolve(arch)
 	req := &testcontainers.ContainerRequest{
-		Image:          def.Image.Resolve(arch),
-		ExposedPorts:   exposed,
-		Env:            env,
-		Networks:       []string{opts.Network.Name()},
-		NetworkAliases: map[string][]string{opts.Network.Name(): {alias}},
-		Files:          files,
-		WaitingFor:     strategy,
+		Image:           image,
+		AlwaysPullImage: isFloatingImageTag(image),
+		ExposedPorts:    exposed,
+		Env:             env,
+		Networks:        []string{opts.Network.Name()},
+		NetworkAliases:  map[string][]string{opts.Network.Name(): {alias}},
+		Files:           files,
+		WaitingFor:      strategy,
 		Labels: map[string]string{
 			labelFramework: frameworkLabelValue,
 			labelBlock:     opts.Network.Block(),
@@ -449,6 +451,21 @@ func readLimitedString(r io.Reader, limit int64) (string, error) {
 // not second-guessed.
 func absPath(repoRoot, p string) string {
 	return assets.Resolve(repoRoot, p)
+}
+
+// floatingImageTags are registry tags whose content can move without the tag changing. "test"
+// is excluded: it's never pushed to a registry, and AlwaysPullImage has no local-image fallback,
+// so marking it floating would hard-fail every local run and this repo's own CI.
+var floatingImageTags = map[string]bool{"latest": true}
+
+// isFloatingImageTag reports whether ref resolves to a floating tag, so the container request
+// should always pull instead of reusing whatever that tag last resolved to locally.
+func isFloatingImageTag(ref string) bool {
+	tag := "latest" // Docker's implicit tag when a ref carries none
+	if idx := strings.LastIndex(ref, ":"); idx > strings.LastIndex(ref, "/") {
+		tag = ref[idx+1:]
+	}
+	return floatingImageTags[tag]
 }
 
 // applyLimits caps the container's host resources.

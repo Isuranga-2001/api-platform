@@ -19,6 +19,7 @@
 package testbench
 
 import (
+	"regexp"
 	"runtime/debug"
 	"strconv"
 	"time"
@@ -59,11 +60,14 @@ const (
 	frameworkModule = "github.com/wso2/api-platform/tests/framework"
 )
 
+// releaseVersion matches the tag of a framework release, which is also the tag of the testbench
+// image published with it.
+var releaseVersion = regexp.MustCompile(`^v(\d+\.\d+\.\d+)$`)
+
 // defaultImage returns the testbench image that matches the framework in this binary. A
-// project that imports the framework as a real dependency gets the framework's released image,
-// published as a single rolling "latest" tag so a release never requires consumers to bump a
-// version pin. A framework built from a checkout, a replaced module or an unversioned
-// development build uses the locally built image instead.
+// project that imports a released framework gets the image published with that release, so the
+// mock services always match the steps and features compiled against them. A framework built
+// from a checkout, a replaced module or an untagged revision uses the locally built image.
 func defaultImage() string {
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
@@ -77,8 +81,8 @@ func imageForModule(info *debug.BuildInfo) string {
 		if dep.Path != frameworkModule || dep.Replace != nil {
 			continue
 		}
-		if dep.Version != "" && dep.Version != "(devel)" {
-			return imgTestbenchRepository + ":latest"
+		if match := releaseVersion.FindStringSubmatch(dep.Version); match != nil {
+			return imgTestbenchRepository + ":" + match[1]
 		}
 	}
 	return imgTestbench
