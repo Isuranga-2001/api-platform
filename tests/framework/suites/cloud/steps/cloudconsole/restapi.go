@@ -257,7 +257,7 @@ func (s *Steps) submitAPICreation(ctx context.Context, table *godog.Table) error
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode != http.StatusCreated {
+	if refusedCreate(resp) {
 		deregister(ctx, cleanup.KindAPI, id)
 	}
 	return nil

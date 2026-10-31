@@ -398,6 +398,36 @@ func TestFindActiveGatewayRecordsItsEnvironment(t *testing.T) {
 	}
 }
 
+func TestFindActiveGatewayDropsTheEnvironmentOfAnEarlierChoice(t *testing.T) {
+	t.Setenv(cloudConsoleAccessTokenEnv, "console-token")
+	topo := cloudAPIStub(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"list": []map[string]any{
+			{"id": "gw-2", "isActive": true, "endpoints": []string{"https://gw2.example.com"}},
+		}})
+	})
+	steps := &Steps{topo: topo, client: httpx.NewClient(httpx.Options{Timeout: 5 * time.Second}),
+		dataPlaneURLResolver: func(_ context.Context, target string) (string, error) { return target, nil }}
+	ctx := tcontext.WithLocal(context.Background(), tcontext.NewLocal("cloud-runner"))
+	local, _ := tcontext.LocalOf(ctx)
+	local.Set(keyGatewayID, "gw-1")
+	local.Set(keyGatewayEnv, "development")
+
+	require.NoError(t, steps.findActiveGateway(ctx))
+	id, err := requiredValue(ctx, keyGatewayID)
+	require.NoError(t, err)
+	require.Equal(t, "gw-2", id)
+	require.Empty(t, optionalValue(ctx, keyGatewayEnv), "the previous gateway's environment must not be paired with the new gateway")
+}
+
+func TestRefusedCreateIsAClientErrorOnly(t *testing.T) {
+	for status, want := range map[int]bool{
+		http.StatusBadRequest: true, http.StatusConflict: true, http.StatusUnprocessableEntity: true,
+		http.StatusOK: false, http.StatusAccepted: false, http.StatusInternalServerError: false, http.StatusBadGateway: false,
+	} {
+		require.Equal(t, want, refusedCreate(&httpx.Response{StatusCode: status}), status)
+	}
+}
+
 func TestUndeployAPIUsesTheProjectAndEnvironmentRoute(t *testing.T) {
 	t.Setenv(cloudConsoleAccessTokenEnv, "console-token")
 	var method, path, environment, gateway string
@@ -821,7 +851,8 @@ func TestPrepareBuildRejectsAnythingButCreated(t *testing.T) {
 func TestAssertBuildIDShape(t *testing.T) {
 	steps, ctx, local, _ := cloudSteps(t, nil)
 	require.Error(t, steps.assertBuildIDShape(ctx), "no build prepared")
-	for id, ok := range map[string]bool{"2026-01-31-1": true, "2026-01-31-12": true, "2026-01-31-0": false, "build-1": false, "2026-1-31-1": false} {
+	for id, ok := range map[string]bool{"2026-01-31-1": true, "2026-01-31-12": true, "2026-01-31-0": false, "build-1": false, "2026-1-31-1": false,
+		"2026-99-99-1": false, "2026-02-30-1": false} {
 		local.Set(keyBuildIDs, "2025-12-31-1,"+id)
 		require.Equal(t, ok, steps.assertBuildIDShape(ctx) == nil, id)
 	}
@@ -938,6 +969,10 @@ func TestEchoBackendSteps(t *testing.T) {
 	publishedResponse(t, steps, ctx, 200, `{"url":"https://echo.example.com/base/posts/1"}`)
 	require.NoError(t, steps.assertEchoBackendReceived(ctx, "/posts/1"))
 	require.ErrorContains(t, steps.assertEchoBackendReceived(ctx, "/posts/2"), "received path")
+	publishedResponse(t, steps, ctx, 200, `{"url":"https://other.example.net/base/posts/1"}`)
+	require.ErrorContains(t, steps.assertEchoBackendReceived(ctx, "/posts/1"), "echo came from host")
+	publishedResponse(t, steps, ctx, 200, `{"url":"http://ECHO.example.com/base/posts/1"}`)
+	require.NoError(t, steps.assertEchoBackendReceived(ctx, "/posts/1"), "the host compares without case and the scheme is not part of the check")
 	publishedResponse(t, steps, ctx, 200, `{"userId":1,"id":1}`)
 	require.ErrorContains(t, steps.assertEchoBackendReceived(ctx, "/posts/1"), "not an echo")
 

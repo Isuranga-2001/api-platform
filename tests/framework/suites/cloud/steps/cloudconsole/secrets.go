@@ -96,6 +96,7 @@ func (s *Steps) doSecretForm(ctx context.Context, method, path string, fields []
 	if err != nil {
 		return nil, err
 	}
+	httpx.ClearPublished(ctx)
 	resp, err := s.client.Do(ctx, httpx.Request{
 		Method: method, URL: cloudAPIURL(base, path), ContentType: contentType, Body: body,
 		Headers: map[string]string{"Authorization": "Bearer " + token},

@@ -46,7 +46,17 @@ const (
 )
 
 // buildIDPattern is the shape of a build identifier: the day it was prepared and that day's index.
-var buildIDPattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-[1-9]\d*$`)
+var buildIDPattern = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2})-[1-9]\d*$`)
+
+// isBuildID reports whether id is a real calendar day followed by that day's index.
+func isBuildID(id string) bool {
+	match := buildIDPattern.FindStringSubmatch(id)
+	if match == nil {
+		return false
+	}
+	_, err := time.Parse(time.DateOnly, match[1])
+	return err == nil
+}
 
 // deploymentRequestKeys lists the values a deployment request table may carry.
 var deploymentRequestKeys = map[string]bool{
@@ -172,7 +182,7 @@ func (s *Steps) assertBuildIDShape(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !buildIDPattern.MatchString(id) {
+	if !isBuildID(id) {
 		return fmt.Errorf("build id %q is not a day and index such as 2026-01-31-1", id)
 	}
 	return nil
@@ -443,7 +453,7 @@ func (s *Steps) recordRenderedBuild(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("the deployment did not report a build: %w", err)
 	}
-	if !buildIDPattern.MatchString(id) {
+	if !isBuildID(id) {
 		return fmt.Errorf("build id %q is not a day and index such as 2026-01-31-1", id)
 	}
 	rendered := optionalValue(ctx, keyBuildIDs)
@@ -542,6 +552,9 @@ func (s *Steps) assertEchoBackendReceived(ctx context.Context, path string) erro
 	received, err := url.Parse(echoed.URL)
 	if err != nil {
 		return fmt.Errorf("the echoed URL is not valid: %w", err)
+	}
+	if !strings.EqualFold(received.Host, base.Host) {
+		return fmt.Errorf("the echo came from host %q, want %q", received.Host, base.Host)
 	}
 	if want := strings.TrimRight(base.Path, "/") + path; received.Path != want {
 		return fmt.Errorf("the echo backend received path %q, want %q", received.Path, want)

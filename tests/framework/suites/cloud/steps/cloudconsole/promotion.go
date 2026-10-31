@@ -226,6 +226,11 @@ func (s *Steps) createProjectBoundToPipeline(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if s.funnel != nil {
+		if err := s.funnel.Publish(ctx, bound); err != nil {
+			return err
+		}
+	}
 	got, err := stringField(bound, "pipeline")
 	if err != nil {
 		return fmt.Errorf("binding project %q to a deployment pipeline: %w", project, err)

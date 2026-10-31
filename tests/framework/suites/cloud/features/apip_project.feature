@@ -18,7 +18,7 @@
 Feature: APIP cloud project lifecycle
   As an APIP cloud user
   I want to manage a project
-  So that project creation, its refusals, its pipeline binding, its quota and deletion are verified
+  So that project creation, its refusals, its pipeline binding and deletion are verified
 
   @TC_APIP_PROJ_001 @ID_APIP_PROJECT_001
   Scenario: The default project of the organisation is resolved and active
@@ -111,6 +111,7 @@ Feature: APIP cloud project lifecycle
   Scenario Outline: Binding a project to a deployment pipeline that does not exist is refused
     Given I obtain an APIP cloud console token
     When I create a synthetic APIP project
+    And the synthetic APIP project should become active
     And I bind the synthetic APIP project to the deployment pipeline "<pipeline>"
     Then the cloud API response status code should be 400
     And the cloud API error code should be "invalid_request"

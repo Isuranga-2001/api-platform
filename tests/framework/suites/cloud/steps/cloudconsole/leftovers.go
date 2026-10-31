@@ -40,6 +40,11 @@ import (
 // finalizerDeleteTimeout bounds how long the finalizer keeps trying to delete one resource.
 const finalizerDeleteTimeout = 90 * time.Second
 
+// finalizerCollectionBudget bounds the time one collection may take to list and delete, so refused
+// deletions in one collection cannot leave the later ones with no time. The suite's overall
+// cleanup deadline caps the sum.
+const finalizerCollectionBudget = 2 * time.Minute
+
 // finalizerCollections are the organisation-wide collections the finalizer reads, in deletion
 // order: a gateway goes before the environment it runs in, and a project before the pipeline it
 // is bound to. idFields name the list-item fields that identify a resource in its own route.
@@ -51,7 +56,7 @@ var finalizerCollections = []struct {
 	{collection: "/managed-gateways", idFields: []string{"id"}},
 	{collection: "/projects", idFields: []string{"id"}},
 	{collection: secretsCollection, idFields: []string{"handle", "id"}},
-	{collection: "/pipelines", idFields: []string{"name"}, wait: true},
+	{collection: "/pipelines", idFields: []string{"id", "name"}, wait: true},
 	{collection: environmentsCollection, idFields: []string{"name"}, wait: true},
 }
 
@@ -144,7 +149,8 @@ func cloudSweeps(client *httpx.Client, base, token string) []finalizer.Collectio
 	sweeps := make([]finalizer.Collection, 0, len(finalizerCollections))
 	for _, entry := range finalizerCollections {
 		sweeps = append(sweeps, finalizer.Collection{
-			Name: entry.collection,
+			Name:    entry.collection,
+			Timeout: finalizerCollectionBudget,
 			List: func(ctx context.Context) ([]finalizer.Leftover, error) {
 				items, err := listCollection(ctx, client, base, token, entry.collection)
 				if errors.Is(err, errCollectionNotServed) {

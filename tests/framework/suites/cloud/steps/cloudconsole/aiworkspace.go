@@ -211,7 +211,9 @@ func (s *Steps) postLLMArtifact(ctx context.Context, a llmArtifact, id string, d
 		return err
 	}
 	if resp.StatusCode != http.StatusCreated {
-		deregister(ctx, a.cleanupKind, id)
+		if refusedCreate(resp) {
+			deregister(ctx, a.cleanupKind, id)
+		}
 		return responseError(resp)
 	}
 	createdID, err := stringField(resp, "id")

@@ -94,6 +94,8 @@ func (s *Steps) findActiveGateway(ctx context.Context) error {
 	if err := tcontext.Set(ctx, keyGatewayID, choice.id); err != nil {
 		return err
 	}
+	// A gateway with no environment must not inherit the environment of an earlier choice.
+	tcontext.Remove(ctx, keyGatewayEnv)
 	if choice.environment != "" {
 		if err := tcontext.Set(ctx, keyGatewayEnv, choice.environment); err != nil {
 			return err
@@ -643,6 +645,8 @@ func (s *Steps) awaitNotFound(ctx context.Context, path, what string) error {
 }
 
 func (s *Steps) doAuthenticated(ctx context.Context, method, path string, body any) (*httpx.Response, error) {
+	// A request that fails before an answer must not leave an earlier answer to be asserted.
+	httpx.ClearPublished(ctx)
 	resp, err := s.doAuthenticatedRaw(ctx, method, path, body)
 	if err != nil {
 		return nil, err
@@ -653,6 +657,13 @@ func (s *Steps) doAuthenticated(ctx context.Context, method, path string, body a
 		}
 	}
 	return resp, nil
+}
+
+// refusedCreate reports whether a create answer proves nothing was stored: a client error. A
+// server error can follow a write the platform already committed, so the resource stays
+// registered for cleanup.
+func refusedCreate(resp *httpx.Response) bool {
+	return resp.StatusCode >= http.StatusBadRequest && resp.StatusCode < http.StatusInternalServerError
 }
 
 func (s *Steps) doAuthenticatedRaw(ctx context.Context, method, path string, body any) (*httpx.Response, error) {

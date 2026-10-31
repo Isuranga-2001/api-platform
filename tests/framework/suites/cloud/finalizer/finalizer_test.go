@@ -21,6 +21,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -154,4 +155,33 @@ func TestTrackIsSafeForConcurrentRunners(t *testing.T) {
 	}
 	wg.Wait()
 	require.True(t, tracker.Tracked())
+}
+
+func TestSweepGivesEachCollectionItsOwnBudget(t *testing.T) {
+	var secondListed bool
+	stuck := Collection{
+		Name:    "/stuck",
+		Timeout: 20 * time.Millisecond,
+		List: func(context.Context) ([]Leftover, error) {
+			return []Leftover{{ID: "a", Names: []string{"x-abcde234"}}}, nil
+		},
+		Delete: func(ctx context.Context, _ string) error {
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+	next := Collection{
+		Name: "/next",
+		List: func(ctx context.Context) ([]Leftover, error) {
+			secondListed = ctx.Err() == nil
+			return nil, nil
+		},
+		Delete: func(context.Context, string) error { return nil },
+	}
+	tracker := NewTracker(nil)
+	tracker.Track("abcde234")
+
+	_, err := tracker.Sweep(context.Background(), []Collection{stuck, next})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.True(t, secondListed, "a collection that ran out of time must not starve the next one")
 }

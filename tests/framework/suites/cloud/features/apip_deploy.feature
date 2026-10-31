@@ -101,7 +101,7 @@ Feature: APIP cloud builds and deployments
 
   # Not enabled: creating the synthetic gateway fails with 400 because the gateway handle must fit the environment's limit and the synthetic environment name leaves no room.
   # POST /environments returns 500 internal_error, so the scenario never reaches the deploy.
-  # The handler hides the upstream status, and the same call fails in apip-environment, so it isn’t specific to this scenario.
+  # The handler hides the upstream status, so the cause of the 500 is not visible to the scenario.
   # @TC_APIP_DEP_006 @known-issue @ID_APIP_DEPLOY_006
   # Scenario: Deploying to a gateway that is not in the target environment is rejected
     # Given I obtain an APIP cloud console token

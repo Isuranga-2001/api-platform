@@ -31,6 +31,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Leftover is one entry a Sweep found in the system under test.
@@ -51,6 +52,9 @@ type Collection struct {
 	List func(ctx context.Context) ([]Leftover, error)
 	// Delete removes one entry by its ID. An entry that is already gone is not an error.
 	Delete func(ctx context.Context, id string) error
+	// Timeout bounds the listing and deleting of this collection within the caller's own
+	// deadline. Zero leaves only the caller's deadline.
+	Timeout time.Duration
 }
 
 // Tracker holds the runner suffixes of one run and sweeps the organisation for entries named
@@ -111,28 +115,43 @@ func (t *Tracker) Sweep(ctx context.Context, collections []Collection) ([]string
 			errs = append(errs, fmt.Errorf("cleanup: collection %q needs both a list and a delete function", collection.Name))
 			continue
 		}
-		items, err := collection.List(ctx)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("listing %s: %w", collection.Name, err))
-			continue
-		}
-		for _, item := range items {
-			if !OwnedBy(item.Names, suffixes) {
-				continue
-			}
-			if item.ID == "" {
-				errs = append(errs, fmt.Errorf("%s holds a leftover with no id to delete it by", collection.Name))
-				continue
-			}
-			t.log.Warn("removing a resource the run left behind", "collection", collection.Name, "id", item.ID)
-			if err := collection.Delete(ctx, item.ID); err != nil {
-				errs = append(errs, err)
-				continue
-			}
-			removed = append(removed, collection.Name+"/"+item.ID)
-		}
+		removedHere, collectionErrs := t.sweepCollection(ctx, collection, suffixes)
+		removed = append(removed, removedHere...)
+		errs = append(errs, collectionErrs...)
 	}
 	return removed, errors.Join(errs...)
+}
+
+// sweepCollection lists one collection and deletes the entries of the tracked runs, within the
+// collection's own budget.
+func (t *Tracker) sweepCollection(ctx context.Context, collection Collection, suffixes []string) ([]string, []error) {
+	if collection.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, collection.Timeout)
+		defer cancel()
+	}
+	items, err := collection.List(ctx)
+	if err != nil {
+		return nil, []error{fmt.Errorf("listing %s: %w", collection.Name, err)}
+	}
+	var removed []string
+	var errs []error
+	for _, item := range items {
+		if !OwnedBy(item.Names, suffixes) {
+			continue
+		}
+		if item.ID == "" {
+			errs = append(errs, fmt.Errorf("%s holds a leftover with no id to delete it by", collection.Name))
+			continue
+		}
+		t.log.Warn("removing a resource the run left behind", "collection", collection.Name, "id", item.ID)
+		if err := collection.Delete(ctx, item.ID); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		removed = append(removed, collection.Name+"/"+item.ID)
+	}
+	return removed, errs
 }
 
 // OwnedBy reports whether any name carries one of the suffixes as a whole name segment, so an
