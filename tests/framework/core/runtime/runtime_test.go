@@ -29,6 +29,7 @@ import (
 	"github.com/wso2/api-platform/tests/framework/core/catalog/platformgateway"
 	"github.com/wso2/api-platform/tests/framework/core/components"
 	"github.com/wso2/api-platform/tests/framework/core/logcapture"
+	"github.com/wso2/api-platform/tests/framework/core/timeline"
 	"github.com/wso2/api-platform/tests/framework/core/topology"
 	"io"
 	"net"
@@ -1384,4 +1385,131 @@ func TestCloseSharedLogsReleasesEveryWriter(t *testing.T) {
 	remaining := len(sharedLogs)
 	sharedMu.Unlock()
 	require.Zero(t, remaining)
+}
+
+// --- runLanes ---
+//
+// runLanes starts its subtests with t.Parallel(), which only pauses them until the *enclosing*
+// test function returns — so a call to runLanes(t, ...) returns long before its subtests have
+// actually run. Every test below calls runLanes from inside its own non-parallel t.Run "group"
+// subtest instead of from the test function directly: a non-parallel t.Run blocks until the
+// whole subtree beneath it (including paused parallel grandchildren) has finished, which is
+// exactly what lets assertions run after every lane has completed.
+
+func TestRunLanesBoundsConcurrencyToParallel(t *testing.T) {
+	const n, parallel = 10, 3
+
+	var (
+		mu      sync.Mutex
+		running int
+		peak    int
+	)
+	t.Run("group", func(t *testing.T) {
+		runLanes(t, n, parallel, nil,
+			func(i int) string { return fmt.Sprintf("job-%02d", i) },
+			func(t *testing.T, i int) {
+				mu.Lock()
+				running++
+				if running > peak {
+					peak = running
+				}
+				mu.Unlock()
+
+				time.Sleep(30 * time.Millisecond)
+
+				mu.Lock()
+				running--
+				mu.Unlock()
+			})
+	})
+
+	require.LessOrEqual(t, peak, parallel)
+	require.Equal(t, parallel, peak, "the run never actually used every lane, so this is not exercising the limit")
+}
+
+func TestRunLanesTreatsNonPositiveParallelAsOne(t *testing.T) {
+	var (
+		mu      sync.Mutex
+		running int
+		peak    int
+	)
+	t.Run("group", func(t *testing.T) {
+		runLanes(t, 5, 0, nil,
+			func(i int) string { return fmt.Sprintf("job-%02d", i) },
+			func(t *testing.T, i int) {
+				mu.Lock()
+				running++
+				if running > peak {
+					peak = running
+				}
+				mu.Unlock()
+
+				time.Sleep(10 * time.Millisecond)
+
+				mu.Lock()
+				running--
+				mu.Unlock()
+			})
+	})
+
+	require.Equal(t, 1, peak)
+}
+
+func TestRunLanesRunsEveryJobWithoutATimelineRecorder(t *testing.T) {
+	var executed atomic.Int64
+	t.Run("group", func(t *testing.T) {
+		runLanes(t, 4, 2, nil,
+			func(i int) string { return fmt.Sprintf("job-%02d", i) },
+			func(t *testing.T, i int) { executed.Add(1) })
+	})
+
+	require.EqualValues(t, 4, executed.Load())
+}
+
+func TestRunLanesRecordsNameAndLaneForEveryJob(t *testing.T) {
+	const n, parallel = 6, 2
+	tl := timeline.NewRecorder()
+
+	t.Run("group", func(t *testing.T) {
+		runLanes(t, n, parallel, tl,
+			func(i int) string { return fmt.Sprintf("job-%02d", i) },
+			func(t *testing.T, i int) {})
+	})
+
+	got := tl.Timeline("test-leg", parallel)
+	require.Len(t, got.Blocks, n)
+
+	seen := map[string]bool{}
+	for _, b := range got.Blocks {
+		require.True(t, b.Passed)
+		require.GreaterOrEqual(t, b.Lane, 1)
+		require.LessOrEqual(t, b.Lane, parallel)
+		seen[b.Name] = true
+	}
+	for i := 0; i < n; i++ {
+		require.True(t, seen[fmt.Sprintf("job-%02d", i)], "job-%02d was never recorded", i)
+	}
+}
+
+// The recorded duration must span every nested subtest a job starts, not just the time it takes
+// job itself to return — job returning only means its own (possibly t.Parallel-deferred) nested
+// subtests have been scheduled, not that they have finished.
+func TestRunLanesRecordsAfterNestedSubtestsFinish(t *testing.T) {
+	tl := timeline.NewRecorder()
+	const sleep = 60 * time.Millisecond
+
+	t.Run("group", func(t *testing.T) {
+		runLanes(t, 1, 1, tl,
+			func(i int) string { return "outer" },
+			func(t *testing.T, i int) {
+				t.Run("inner", func(t *testing.T) {
+					t.Parallel()
+					time.Sleep(sleep)
+				})
+			})
+	})
+
+	got := tl.Timeline("test-leg", 1)
+	require.Len(t, got.Blocks, 1)
+	require.GreaterOrEqual(t, got.Blocks[0].DurationMs, sleep.Milliseconds()-5)
 }

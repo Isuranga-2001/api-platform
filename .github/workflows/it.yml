@@ -158,9 +158,27 @@ jobs:
         env:
           IT_COVERAGE_OUT: ${{ github.workspace }}/tests/framework/suites/it/coverage-out
           IT_LOG_OUT: ${{ github.workspace }}/tests/framework/suites/it/logs-out
+          IT_TIMELINE_OUT: ${{ github.workspace }}/tests/framework/suites/it/timeline-${{ matrix.leg }}.json
         run: |
-          go test -v ./suites/it -count=1 -timeout=60m -logs \
+          go test -v ./suites/it -count=1 -timeout=60m -logs -timeline \
             ${{ matrix.suite_flags }}
+
+      # always(): a reporting problem must never hide a real pass/fail, so render-timeline
+      # itself never fails this step — see its doc comment.
+      - name: Render the execution map
+        if: always()
+        working-directory: tests/framework
+        env:
+          IT_TIMELINE_OUT: ${{ github.workspace }}/tests/framework/suites/it/timeline-${{ matrix.leg }}.json
+        run: go run ./cmd/render-timeline -input "$IT_TIMELINE_OUT" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the execution map timeline
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: execution-timeline-${{ matrix.leg }}
+          path: tests/framework/suites/it/timeline-${{ matrix.leg }}.json
+          if-no-files-found: warn
 
       # always(), and per leg: a failing run is exactly when the container logs are needed,
       # and each leg's artifact name must be unique or upload-artifact rejects the second.

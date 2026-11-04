@@ -121,3 +121,31 @@ func TestFindWorkspaceRootFailsWithoutAMarker(t *testing.T) {
 		require.ErrorContains(t, err, "set Options.WorkspaceRoot")
 	}
 }
+
+// --- legName ---
+//
+// legName's output must track the leg names in the matrix of .github/workflows/it.yml
+// (gateway-latest, gateway-1.2.0, gateway-1.1.0): that is what lets a rendered execution map's
+// title be read alongside the CI job it came from.
+
+func TestLegNameForCoverage(t *testing.T) {
+	require.Equal(t, "gateway-latest", legName(topology.Selection{Coverage: true}))
+}
+
+func TestLegNameForAGatewayVersion(t *testing.T) {
+	require.Equal(t, "gateway-1.2.0", legName(topology.Selection{GatewayVersion: "1.2.0"}))
+}
+
+func TestLegNameTrimsTheGatewayVersion(t *testing.T) {
+	require.Equal(t, "gateway-1.1.0", legName(topology.Selection{GatewayVersion: "  1.1.0  "}))
+}
+
+func TestLegNameDefaultsWithoutCoverageOrAGatewayVersion(t *testing.T) {
+	require.Equal(t, "default", legName(topology.Selection{}))
+}
+
+func TestLegNamePrefersCoverageOverAGatewayVersion(t *testing.T) {
+	// Selection.Apply already rejects this combination, but legName itself must still resolve
+	// to one definite answer rather than depend on struct field order.
+	require.Equal(t, "gateway-latest", legName(topology.Selection{Coverage: true, GatewayVersion: "1.2.0"}))
+}

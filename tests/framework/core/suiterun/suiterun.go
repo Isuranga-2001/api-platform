@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	frameworkbuilder "github.com/wso2/api-platform/tests/framework/core/builder"
@@ -35,6 +36,7 @@ import (
 	"github.com/wso2/api-platform/tests/framework/core/coverage"
 	"github.com/wso2/api-platform/tests/framework/core/logcapture"
 	frameworkruntime "github.com/wso2/api-platform/tests/framework/core/runtime"
+	"github.com/wso2/api-platform/tests/framework/core/timeline"
 	"github.com/wso2/api-platform/tests/framework/core/topology"
 )
 
@@ -67,8 +69,9 @@ type Options struct {
 
 // state is populated from flags by Main so one suite file can be sharded across CI jobs.
 var state struct {
-	selection   topology.Selection
-	logsEnabled bool
+	selection       topology.Selection
+	logsEnabled     bool
+	timelineEnabled bool
 }
 
 // Main parses the suite flags, prepares the process, runs the tests and exits. Call it from
@@ -77,6 +80,9 @@ func Main(m *testing.M, opts Options) {
 	state.selection.Flags(flag.CommandLine)
 	flag.BoolVar(&state.logsEnabled, "logs", false,
 		"capture every block's combined container output to files under IT_LOG_OUT")
+	flag.BoolVar(&state.timelineEnabled, "timeline", false,
+		"record each block's lane, start and duration to a JSON timeline under IT_TIMELINE_OUT, "+
+			"for rendering the run's execution map with cmd/render-timeline")
 	flag.Parse()
 
 	// Coverage mode is read while catalog definitions are built, so it is set first.
@@ -234,16 +240,48 @@ func Run(t *testing.T, opts Options) {
 		t.Logf("logcapture: collecting container output into %s", logs.Root())
 	}
 
+	// Recorder built here, like the sinks above, because only the suite knows the leg's
+	// output path; the write is deferred to a Cleanup on t so it runs once every block (and
+	// every one of its runners) has actually finished, not when this function returns.
+	var recorder *timeline.Recorder
+	if state.timelineEnabled {
+		recorder = timeline.NewRecorder()
+		leg := legName(selection)
+		t.Cleanup(func() {
+			out := os.Getenv(timeline.EnvOut)
+			if out == "" {
+				out = filepath.Join(dir, "timeline.json")
+			}
+			if err := timeline.Write(out, recorder.Timeline(leg, narrowed.Parallel)); err != nil {
+				t.Logf("timeline: %v", err)
+			}
+		})
+	}
+
 	frameworkruntime.Run(t, narrowed, frameworkruntime.Deps{
 		RepoRoot:    root,
 		FeatureRoot: dir,
 		Coverage:    sink,
 		Logs:        logs,
+		Timeline:    recorder,
 		Steps: func(topo *frameworkruntime.Topology) (frameworkruntime.StepRegistrar, error) {
 			return opts.Steps(topo, dir)
 		},
 		CleanupDeleters: opts.CleanupDeleters,
 	})
+}
+
+// legName labels a run for the execution map, matching the leg names used by the matrix in
+// .github/workflows/it.yml (gateway-latest, gateway-1.2.0, gateway-1.1.0, ...), so the rendered
+// title reads the same as the CI job it came from.
+func legName(selection topology.Selection) string {
+	if selection.Coverage {
+		return "gateway-latest"
+	}
+	if version := strings.TrimSpace(selection.GatewayVersion); version != "" {
+		return "gateway-" + version
+	}
+	return "default"
 }
 
 func suiteName(name string) string {
