@@ -214,6 +214,15 @@ every repository file the engine reads at run time must be available without one
 - Keep configuration overlays separate from component definitions.
 - Validate nil, zero-value, duplicate, invalid, and unsupported inputs at
   package boundaries.
+- Block timing lives in `core/timeline`, not `core/runtime`: the `Recorder` only records a
+  lane, a start time and a pass/fail result, with no knowledge of topologies, containers or
+  godog. `core/runtime.Run` records through it (via `runLanes`) rather than measuring timing
+  itself, and `cmd/render-timeline` turns the written JSON into the job summary's execution
+  map. A block's recorded duration must span every one of its runners and its teardown, not
+  just the time its own test function takes to return — register the recording `t.Cleanup`
+  before any other cleanup the block registers, since cleanups run last-registered-first and
+  the block's own teardown must already have run (and `t.Failed()` must already reflect every
+  runner) by the time it fires.
 
 ## Tests
 

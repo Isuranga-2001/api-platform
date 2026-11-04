@@ -37,6 +37,7 @@ import (
 	"github.com/wso2/api-platform/tests/framework/core/cleanup"
 	"github.com/wso2/api-platform/tests/framework/core/coverage"
 	"github.com/wso2/api-platform/tests/framework/core/logcapture"
+	"github.com/wso2/api-platform/tests/framework/core/timeline"
 	"github.com/wso2/api-platform/tests/framework/core/topology"
 	"github.com/wso2/api-platform/tests/framework/core/util/tcontext"
 	"github.com/wso2/api-platform/tests/framework/core/util/unique"
@@ -75,6 +76,11 @@ type Deps struct {
 	// into one file for the block's whole lifetime. Nil in a default run — the suite
 	// decides whether container output is being collected at all.
 	Logs *logcapture.Sink
+
+	// Timeline, when non-nil, records the lane, start and duration of every block, for
+	// rendering the run's execution map. Nil in a default run — the suite decides whether
+	// timing is being collected at all.
+	Timeline *timeline.Recorder
 }
 
 var runnerOutputMu sync.Mutex
@@ -111,23 +117,46 @@ func Run(t *testing.T, resolved *topology.Resolved, deps Deps) {
 		}
 	})
 
-	// Limit the number of live block topologies.
-	parallel := resolved.Parallel
+	runLanes(t, len(resolved.Blocks), resolved.Parallel, deps.Timeline,
+		func(i int) string { return resolved.Blocks[i].Name },
+		func(t *testing.T, i int) {
+			runBlock(t, &resolved.Blocks[i], resolved, deps, log, &executedTotal)
+		})
+}
+
+// runLanes runs n subtests of t, named by name and bodied by job, at most parallel at a time —
+// one lane per concurrent subtest, counted from 1. parallel below one counts as one. When tl is
+// non-nil, it records each subtest's lane, start time and pass/fail result once the subtest and
+// every one of its own subtests have finished.
+func runLanes(t *testing.T, n, parallel int, tl *timeline.Recorder, name func(i int) string, job func(t *testing.T, i int)) {
+	t.Helper()
 	if parallel <= 0 {
 		parallel = 1
 	}
-	slots := make(chan struct{}, parallel)
+	lanes := make(chan int, parallel)
+	for lane := 1; lane <= parallel; lane++ {
+		lanes <- lane
+	}
 
-	for i := range resolved.Blocks {
-		block := &resolved.Blocks[i]
+	for i := 0; i < n; i++ {
+		i := i
 
-		t.Run(block.Name, func(t *testing.T) {
+		t.Run(name(i), func(t *testing.T) {
 			t.Parallel()
 
-			slots <- struct{}{}
-			t.Cleanup(func() { <-slots })
+			lane := <-lanes
+			started := time.Now()
+			// Registered before job so it runs last among this subtest's cleanups
+			// (cleanup order is last registered, first run) — after job's own
+			// teardown, once t.Failed() reflects every nested subtest's result.
+			t.Cleanup(func() {
+				lanes <- lane
+				if tl != nil {
+					tl.Block(lane, name(i), started, !t.Failed())
+				}
+			})
 
-			runBlock(t, block, resolved, deps, log, &executedTotal)
+			job(t, i)
 		})
 	}
 }

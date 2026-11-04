@@ -156,8 +156,14 @@ func TestIntegrationSuite(t *testing.T) { suiterun.Run(t, options()) }
 
 `options()` returns a `suiterun.Options` carrying the project's step definitions and cleanup
 handlers. `Main` registers the suite flags (`-blocks`, `-policies`, `-gateway-version`, `-host`,
-`-coverage`, `-logs`), and `Run` loads the suite file beside the test, builds images, applies the
-selection and runs the runners.
+`-coverage`, `-logs`, `-timeline`), and `Run` loads the suite file beside the test, builds images,
+applies the selection and runs the runners.
+
+`-timeline` records each block's lane, start and duration to a JSON file (`IT_TIMELINE_OUT`,
+defaulting to `timeline.json` beside the suite). `go run ./cmd/render-timeline -input
+timeline.json` renders it as a Mermaid Gantt chart in GitHub job summary markdown: one section
+per lane, each block a bar whose length is its own running time (a light green border for a
+passed block, red for a failed one), labelled with its name and how long it took.
 
 A repository that keeps each policy's tests next to the policy declares one block with
 `runnersFrom: policies` and `addPoliciesFrom: <policy tree>`. Each policy lists its runners in
