@@ -45,13 +45,12 @@ permissions:
   contents: read
 
 env:
-  DOCKER_REGISTRY: ghcr.io/wso2/api-platform
+  DOCKER_REGISTRY: ghcr.io/isuranga-2001/api-platform
 
 jobs:
   gateway-images:
     name: Build and push the latest gateway images
     if: >-
-      github.ref == 'refs/heads/main' &&
       (github.event_name == 'schedule' || inputs.component == 'all' || inputs.component == 'gateway')
     env:
       GATEWAY_PATHS: gateway common httpkit sdk sdk-python LICENSE .github/workflows/daily-builds.yml
@@ -68,7 +67,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           # The tip of main when the run starts, so a delayed run never replaces latest with older code.
-          ref: main
+          ref: ${{ github.ref }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -77,7 +76,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.API_PLATFORM_BOT_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Plan the publish
         id: plan
@@ -162,7 +161,6 @@ jobs:
   platform-api-image:
     name: Build and push the latest platform-api image
     if: >-
-      github.ref == 'refs/heads/main' &&
       (github.event_name == 'schedule' || inputs.component == 'all' || inputs.component == 'platform-api')
     env:
       PLATFORM_API_PATHS: platform-api common httpkit .github/workflows/daily-builds.yml
@@ -179,7 +177,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           # The tip of main when the run starts, so a delayed run never replaces latest with older code.
-          ref: main
+          ref: ${{ github.ref }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -188,7 +186,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.API_PLATFORM_BOT_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Plan the publish
         id: plan
