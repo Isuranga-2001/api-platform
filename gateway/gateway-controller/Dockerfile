@@ -114,6 +114,7 @@ FROM ubuntu:24.04 AS production
 
 # Re-declare ARGs after FROM to use them in this stage
 ARG VERSION=0.0.1-SNAPSHOT
+ARG GIT_COMMIT=unknown
 ARG ENABLE_COVERAGE=false
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -161,5 +162,6 @@ LABEL org.opencontainers.image.title="API Platform Gateway Controller"
 LABEL org.opencontainers.image.description="API Platform Gateway Controller with xDS control plane"
 LABEL org.opencontainers.image.vendor="WSO2"
 LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.revision="${GIT_COMMIT}"
 
 ENTRYPOINT ["/app/controller"]

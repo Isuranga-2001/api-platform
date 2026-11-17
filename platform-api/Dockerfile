@@ -87,12 +87,14 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
 FROM ubuntu:24.04
 
 ARG PORT
+ARG GIT_COMMIT=unknown
 ARG EXPERIMENTAL=false
 ARG ENABLE_COVERAGE=false
 ARG USERNAME=wso2
 ARG USER_UID=10001
 ARG USER_GID=$USER_UID
 
+LABEL org.opencontainers.image.revision="${GIT_COMMIT}"
 LABEL org.opencontainers.image.experimental="${EXPERIMENTAL}"
 
 RUN apt-get update && apt-get upgrade -y \

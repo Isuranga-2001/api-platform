@@ -78,6 +78,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM golang:1.26.10-bookworm
 
+ARG GIT_COMMIT=unknown
+LABEL org.opencontainers.image.revision="${GIT_COMMIT}"
+
 # Install runtime dependencies (upgrade first to pull in Debian security fixes)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \

@@ -298,7 +298,7 @@ management paths, and compatibility selection. For example, the command above pu
 publishes every day at 03:00 UTC from `main`, and whenever it is started by hand with the
 `gateway` component (`gateway-controller`, `gateway-runtime` and `gateway-builder`). Each is a single
 image tagged `latest` that every build replaces, and no other tag is published. A run builds nothing
-when the images are already newer than the last gateway commit. A project that has no gateway source
+when the images were already built from the last gateway commit. A project that has no gateway source
 can test against the current gateway this way. A merge reaches `latest` at the next run, so it can be
 up to a day behind.
 It is not a release: it uses the current configuration and contract, runners are matched as they

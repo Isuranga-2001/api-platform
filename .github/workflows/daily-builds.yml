@@ -85,29 +85,26 @@ jobs:
         run: |
           set -euo pipefail
           read -ra paths <<< "$GATEWAY_PATHS"
-          source_sha="$(git log -1 --format=%H -- "${paths[@]}")"
-          if [[ -z "$source_sha" ]]; then
-            echo "::error::no commit found for the gateway paths"
-            exit 1
-          fi
-          # latest is current when every image was built after the newest commit that changed the
-          # gateway. A missing image counts as built at time 0, so it is built.
-          source_time="$(git log -1 --format=%ct "$source_sha")"
+          # An image is current when the commit it was built from is known and no commit after it
+          # changed the gateway. Comparing commits, not build times, means a commit that merged
+          # while the image was building is still picked up by the next run.
           build=false
           if [[ "${FORCE:-false}" == "true" ]]; then
             build=true
           fi
           for name in gateway-controller gateway-runtime gateway-builder; do
             image="$DOCKER_REGISTRY/$name"
-            built_time="$(docker buildx imagetools inspect "$image:latest" --format '{{json .Image}}' 2>/dev/null \
-              | jq -r '(if has("config") then . else (to_entries[0].value) end | .created // empty) | if . == "" then empty else sub("\\.[0-9]+"; "") | fromdateiso8601 end' 2>/dev/null || true)"
-            if (( ${built_time:-0} <= source_time )); then
+            built_from="$(docker buildx imagetools inspect "$image:latest" --format '{{json .Image}}' 2>/dev/null \
+              | jq -r '(if has("config") then . else (to_entries[0].value) end | .config.Labels["org.opencontainers.image.revision"]) // empty' 2>/dev/null || true)"
+            if [[ -z "$built_from" || "$built_from" == "unknown" ]] \
+              || ! git cat-file -e "${built_from}^{commit}" 2>/dev/null \
+              || [[ -n "$(git log -1 --format=%H "${built_from}..HEAD" -- "${paths[@]}")" ]]; then
               build=true
             fi
           done
           echo "build=$build" >> "$GITHUB_OUTPUT"
           if [[ "$build" == "false" ]]; then
-            echo "latest was built after the newest gateway commit ($source_sha) for all three images; nothing to publish." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "latest is built from a commit that includes every gateway change for all three images; nothing to publish." | tee -a "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Set up Go
@@ -195,27 +192,24 @@ jobs:
         run: |
           set -euo pipefail
           read -ra paths <<< "$PLATFORM_API_PATHS"
-          source_sha="$(git log -1 --format=%H -- "${paths[@]}")"
-          if [[ -z "$source_sha" ]]; then
-            echo "::error::no commit found for the platform-api paths"
-            exit 1
-          fi
-          # latest is current when the image was built after the newest commit that changed the
-          # Platform API. A missing image counts as built at time 0, so it is built.
-          source_time="$(git log -1 --format=%ct "$source_sha")"
+          # The image is current when the commit it was built from is known and no commit after it
+          # changed the Platform API. Comparing commits, not build times, means a commit that
+          # merged while the image was building is still picked up by the next run.
           build=false
           if [[ "${FORCE:-false}" == "true" ]]; then
             build=true
           fi
           image="$DOCKER_REGISTRY/platform-api"
-          built_time="$(docker buildx imagetools inspect "$image:latest" --format '{{json .Image}}' 2>/dev/null \
-            | jq -r '(if has("config") then . else (to_entries[0].value) end | .created // empty) | if . == "" then empty else sub("\\.[0-9]+"; "") | fromdateiso8601 end' 2>/dev/null || true)"
-          if (( ${built_time:-0} <= source_time )); then
+          built_from="$(docker buildx imagetools inspect "$image:latest" --format '{{json .Image}}' 2>/dev/null \
+            | jq -r '(if has("config") then . else (to_entries[0].value) end | .config.Labels["org.opencontainers.image.revision"]) // empty' 2>/dev/null || true)"
+          if [[ -z "$built_from" || "$built_from" == "unknown" ]] \
+            || ! git cat-file -e "${built_from}^{commit}" 2>/dev/null \
+            || [[ -n "$(git log -1 --format=%H "${built_from}..HEAD" -- "${paths[@]}")" ]]; then
             build=true
           fi
           echo "build=$build" >> "$GITHUB_OUTPUT"
           if [[ "$build" == "false" ]]; then
-            echo "latest was built after the newest platform-api commit ($source_sha); nothing to publish." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "latest is built from a commit that includes every platform-api change; nothing to publish." | tee -a "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Set up QEMU

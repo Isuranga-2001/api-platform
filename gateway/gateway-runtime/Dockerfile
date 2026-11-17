@@ -232,6 +232,7 @@ ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
 FROM envoyproxy/envoy:${ENVOY_VERSION} AS production
 
 ARG VERSION=unknown
+ARG GIT_COMMIT=unknown
 ARG ENABLE_COVERAGE=false
 
 USER root
@@ -297,5 +298,6 @@ LABEL org.opencontainers.image.title="API Platform Gateway Runtime"
 LABEL org.opencontainers.image.description="API Platform Gateway Runtime with Envoy Router and Policy Engine"
 LABEL org.opencontainers.image.vendor="WSO2"
 LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.revision="${GIT_COMMIT}"
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
