@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/wso2/api-platform/tests/framework/core/cleanup"
@@ -51,8 +52,12 @@ const (
 	flowActionSignUp   = "action_signup"
 	flowActionContinue = "action_continue"
 
-	flowStatusComplete = "COMPLETE"
-	flowStatusError    = "ERROR"
+	flowStatusComplete   = "COMPLETE"
+	flowStatusError      = "ERROR"
+	flowStatusIncomplete = "INCOMPLETE"
+
+	// maxContinueViews bounds the views a sign-in goes through that only ask the consumer to continue.
+	maxContinueViews = 3
 
 	// maxSignInHops bounds the redirects a sign-in follows on one host.
 	maxSignInHops = 5
@@ -306,6 +311,37 @@ func (s identityFlowStep) offers(action string) bool {
 	return false
 }
 
+// asksOnlyToContinue reports whether a flow answer is a view whose only way on is the continue
+// action and that asks for no input.
+func asksOnlyToContinue(raw []byte) bool {
+	var answer struct {
+		Data struct {
+			Actions []struct {
+				Ref string `json:"ref"`
+			} `json:"actions"`
+			Inputs []json.RawMessage `json:"inputs"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &answer); err != nil {
+		return false
+	}
+	return len(answer.Data.Actions) == 1 && answer.Data.Actions[0].Ref == flowActionContinue && len(answer.Data.Inputs) == 0
+}
+
+// flowTokenPattern matches the tokens of a flow answer, which an excerpt must not carry.
+var flowTokenPattern = regexp.MustCompile(`"(challengeToken|assertion)"\s*:\s*"[^"]*"`)
+
+// flowPromptExcerpt returns the start of a flow answer without its tokens, to say what the flow
+// still asked for when it ended before completing.
+func flowPromptExcerpt(raw []byte) string {
+	const limit = 400
+	text := flowTokenPattern.ReplaceAllString(strings.TrimSpace(string(raw)), `"$1":"…"`)
+	if len(text) > limit {
+		text = text[:limit] + "…"
+	}
+	return text
+}
+
 // identitySession is an SSO session the flow reports, which the callback carries back.
 type identitySession struct {
 	FlowIdentifier string `json:"flowIdentifier"`
@@ -437,10 +473,26 @@ func (s *Steps) signIn(ctx context.Context, actions []flowAction) error {
 		step = answer
 		sessions = append(sessions, step.SessionData...)
 	}
+	// A flow may end its prompts with views that only ask the consumer to continue.
+	for views := 0; views < maxContinueViews && step.FlowStatus == flowStatusIncomplete && asksOnlyToContinue(step.raw); views++ {
+		answer, refusal, err := browser.takeFlowAction(ctx, joinURLPath(base, identityFlowPath), step, flowAction{action: flowActionContinue})
+		if err != nil {
+			return err
+		}
+		if refusal != "" {
+			browser.refusal = refusal
+			return nil
+		}
+		step = answer
+		sessions = append(sessions, step.SessionData...)
+	}
 	if step.FlowStatus != flowStatusComplete || step.Assertion == "" {
 		browser.refusal = step.FailureReason
 		if browser.refusal == "" {
 			browser.refusal = "the flow ended as " + step.FlowStatus
+			if prompt := flowPromptExcerpt(step.raw); prompt != "" {
+				browser.refusal += " (the answer: " + prompt + ")"
+			}
 		}
 		return nil
 	}
