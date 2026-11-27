@@ -152,7 +152,8 @@ func (t *Topology) Component(name string) (*components.Instance, error) {
 	return t.Instances.Get(name)
 }
 
-// ComponentVersion returns the effective version resolved for a component in this block.
+// ComponentVersion returns the version resolved for a component in this block. An update-level
+// tag (1.2.3.4) is reported as its release (1.2.3).
 func (t *Topology) ComponentVersion(name string) (string, error) {
 	if t == nil {
 		return "", fmt.Errorf("runtime: topology is required")
@@ -165,7 +166,7 @@ func (t *Topology) ComponentVersion(name string) (string, error) {
 			if strings.TrimSpace(component.Version) == "" {
 				return "", fmt.Errorf("runtime: component %q has no resolved version", name)
 			}
-			return component.Version, nil
+			return components.ReleaseContractVersion(component.Version), nil
 		}
 	}
 	return "", fmt.Errorf("runtime: component %q is not declared in block %q", name, t.Block.Name)
