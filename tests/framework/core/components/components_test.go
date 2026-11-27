@@ -1407,6 +1407,38 @@ func TestDefinitionWithConfigVersion(t *testing.T) {
 	require.Equal(t, "gateway:1.1.0", updated.Image.Ref)
 	require.Equal(t, "/api/admin/v0.9/health", updated.Health.Path)
 	require.Equal(t, "/api/admin/v1/health", definition.Health.Path)
+
+	updated, err = definition.WithReleaseVersion("1.1.0.7")
+	require.NoError(t, err)
+	require.Equal(t, "gateway:1.1.0.7", updated.Image.Ref, "the image keeps the full update-level tag")
+	require.Equal(t, "resources/1.1.0/config.toml", updated.Config.BaseConfigPath)
+	require.Equal(t, "/api/admin/v0.9/health", updated.Health.Path)
+
+	_, err = definition.WithReleaseVersion("1.2.0.37")
+	require.ErrorContains(t, err, `no profile for version "1.2.0"`)
+}
+
+func TestReleaseContractVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		want    string
+	}{
+		{name: "update-level tag", version: "1.2.0.37", want: "1.2.0"},
+		{name: "update-level tag with surrounding space", version: " 1.1.0.7 ", want: "1.1.0"},
+		{name: "release", version: "1.2.0", want: "1.2.0"},
+		{name: "source version", version: "1.2.0-SNAPSHOT", want: "1.2.0-SNAPSHOT"},
+		{name: "latest", version: "latest", want: "latest"},
+		{name: "empty", version: "", want: ""},
+		{name: "empty part", version: "1.2.0.", want: "1.2.0."},
+		{name: "non-numeric part", version: "1.2.0.rc1", want: "1.2.0.rc1"},
+		{name: "five parts", version: "1.2.0.37.1", want: "1.2.0.37.1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, ReleaseContractVersion(tt.version))
+		})
+	}
 }
 
 func TestConfigAndFileValidation(t *testing.T) {

@@ -118,6 +118,10 @@ func TestComponentVersion(t *testing.T) {
 			Name:       "gateway-core",
 			Components: []topology.ResolvedComponent{{Def: definition, Version: "1.2.0-SNAPSHOT"}},
 		}}, want: "1.2.0-SNAPSHOT"},
+		{name: "update-level tag reports the release it follows", topology: &Topology{Block: &topology.ResolvedBlock{
+			Name:       "gateway-core",
+			Components: []topology.ResolvedComponent{{Def: definition, Version: "1.2.0.37"}},
+		}}, want: "1.2.0"},
 		{name: "missing version", topology: &Topology{Block: &topology.ResolvedBlock{
 			Name:       "gateway-core",
 			Components: []topology.ResolvedComponent{{Def: definition}},

@@ -1734,6 +1734,35 @@ func TestGatewayVersionSelectionWithoutHostPreservesExistingBehavior(t *testing.
 	require.Equal(t, "gateway-controller:current", original.Compose.Env["PG_CONTROLLER_IMAGE"])
 }
 
+func TestGatewayVersionSelectionAcceptsUpdateLevelTag(t *testing.T) {
+	original := &components.Definition{
+		Name: "platform-gateway",
+		Config: &components.ConfigInjection{
+			BaseConfigPath: "config/current.toml",
+			Versioned:      map[string]components.ConfigProfile{"1.2.0": {BaseConfigPath: "resources/1.2.0/config.toml"}},
+		},
+		Compose: &components.ComposeSpec{Env: map[string]string{
+			"PG_CONTROLLER_IMAGE": "ghcr.io/wso2/api-platform/gateway-controller:current",
+			"PG_RUNTIME_IMAGE":    "ghcr.io/wso2/api-platform/gateway-runtime:current",
+		}},
+	}
+	suite := &Resolved{Blocks: []ResolvedBlock{{
+		Name:       "gateway-core",
+		Components: []ResolvedComponent{{Def: original}},
+	}}}
+
+	got, err := (Selection{GatewayVersion: "1.2.0.37", GatewayHost: "registry.example/u2"}).Apply(suite)
+	require.NoError(t, err)
+	component := got.Blocks[0].Components[0]
+	require.Equal(t, "1.2.0.37", component.Version)
+	require.Equal(t, "registry.example/u2/gateway-controller:1.2.0.37", component.Def.Compose.Env["PG_CONTROLLER_IMAGE"])
+	require.Equal(t, "registry.example/u2/gateway-runtime:1.2.0.37", component.Def.Compose.Env["PG_RUNTIME_IMAGE"])
+	require.Equal(t, "resources/1.2.0/config.toml", component.Def.Config.BaseConfigPath)
+
+	_, err = (Selection{GatewayVersion: "1.3.0.1"}).Apply(suite)
+	require.ErrorContains(t, err, `no profile for version "1.3.0"`)
+}
+
 func TestGatewayHostRequiresVersion(t *testing.T) {
 	_, err := (Selection{GatewayHost: "registry.example/test-gateway"}).Apply(&Resolved{})
 	require.ErrorContains(t, err, "-host requires -gateway-version")
