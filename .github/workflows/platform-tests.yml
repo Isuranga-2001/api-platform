@@ -28,7 +28,8 @@
 # A failing unit-test job (cloud suite check included) stops both suites.
 #
 # The integration suite runs only the blocks the change can affect (cmd/affectedblocks), and
-# the released Gateway legs run only the blocks with a Gateway.
+# the released Gateway legs run only the blocks with a Gateway. The released legs use the latest
+# U2 images from registry.wso2.com (HARBOR_REGISTRY_* secrets), so fork PRs skip them.
 
 name: Platform Tests
 
@@ -54,6 +55,7 @@ jobs:
       it_blocks: ${{ steps.blocks.outputs.blocks }}
       it_label: ${{ steps.blocks.outputs.label || 'all blocks' }}
       it_complete: ${{ steps.blocks.outputs.complete }}
+      it_legs: ${{ steps.legs.outputs.legs }}
       ui: ${{ steps.filter.outputs.ui }}
       ui_unit: ${{ steps.filter.outputs.ui_unit }}
       cloud: ${{ steps.filter.outputs.cloud }}
@@ -131,6 +133,25 @@ jobs:
           echo "ui_unit=$ui_unit" >> "$GITHUB_OUTPUT"
           echo "cloud=$cloud" >> "$GITHUB_OUTPUT"
           echo "backend=$backend ui=$ui ui_unit=$ui_unit cloud=$cloud"
+
+      # Legs: the source-built Gateway, plus the latest U2 of each release. Fork PRs get no
+      # secrets, so they run the source-built leg only.
+      - name: Select the integration legs
+        id: legs
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
+        run: |
+          legs='{"leg":"gateway-latest","suite_flags":"-coverage"}'
+          if [ "$EVENT_NAME" != "pull_request" ] || [ "$HEAD_REPO" = "$THIS_REPO" ]; then
+            u2_flags='-host=registry.wso2.com/wso2-api-platform -require-components=platform-gateway'
+            for release in 1.2.0 1.1.0; do
+              legs="$legs,{\"leg\":\"gateway-$release-u2\",\"release\":\"$release\",\"suite_flags\":\"$u2_flags\"}"
+            done
+          fi
+          echo "legs={\"include\":[$legs]}" >> "$GITHUB_OUTPUT"
+          echo "Integration legs: $legs"
 
       - name: Set up Go
         if: github.event_name == 'pull_request' && steps.filter.outputs.backend == 'true'
@@ -466,18 +487,9 @@ jobs:
     strategy:
       # Each leg is an independent compatibility verdict
       fail-fast: false
-      matrix:
-        include:
-          # The source-built coverage instrumented Gateway.
-          - leg: gateway-latest
-            suite_flags: '-coverage'
-          # The released 1.2.0 Gateway. The released legs run only the blocks with a Gateway:
-          # a block without one runs the same on every leg, so the latest leg covers it.
-          - leg: gateway-1.2.0
-            suite_flags: '-gateway-version=1.2.0 -require-components=platform-gateway'
-          # The released 1.1.0 Gateway.
-          - leg: gateway-1.1.0
-            suite_flags: '-gateway-version=1.1.0 -host=docker.io/isurangaws -require-components=platform-gateway'
+      # Set by "Select the integration legs". The released legs run only the blocks with a
+      # Gateway; the latest leg covers the rest.
+      matrix: ${{ fromJSON(needs.changes.outputs.it_legs) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -515,15 +527,60 @@ jobs:
       - name: Build ap CLI binary
         run: make -C tests/framework ap-cli
 
+      # The action logs out when the job ends.
+      - name: Log in to the WSO2 registry
+        if: matrix.release != ''
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: registry.wso2.com
+          username: ${{ secrets.HARBOR_REGISTRY_USERNAME }}
+          password: ${{ secrets.HARBOR_REGISTRY_PASSWORD }}
+
+      # Newest <release>.N tag on all Gateway images. No moving tag works: <release>.0 is GA, and
+      # latest follows the newest release line.
+      - name: Resolve the latest U2 tag
+        id: u2
+        if: matrix.release != ''
+        env:
+          RELEASE: ${{ matrix.release }}
+          HARBOR_REGISTRY_USERNAME: ${{ secrets.HARBOR_REGISTRY_USERNAME }}
+          HARBOR_REGISTRY_PASSWORD: ${{ secrets.HARBOR_REGISTRY_PASSWORD }}
+        run: |
+          tag="$(tests/framework/tools/latest-u2-tag.sh "$RELEASE")"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Gateway $RELEASE resolved to the latest U2 tag $tag"
+
       - name: Run the integration suite
         working-directory: tests/framework
         env:
           IT_COVERAGE_OUT: ${{ github.workspace }}/tests/framework/suites/it/coverage-out
           IT_LOG_OUT: ${{ github.workspace }}/tests/framework/suites/it/logs-out
           IT_BLOCKS: ${{ needs.changes.outputs.it_blocks }}
+          U2_TAG: ${{ steps.u2.outputs.tag }}
         run: |
           go test -v ./suites/it -count=1 -timeout=60m -logs \
-            ${{ matrix.suite_flags }} ${IT_BLOCKS:+"-blocks=$IT_BLOCKS"}
+            ${{ matrix.suite_flags }} ${U2_TAG:+"-gateway-version=$U2_TAG"} \
+            ${IT_BLOCKS:+"-blocks=$IT_BLOCKS"}
+
+      # Records the tag and image digests the leg ran against, even if the suite failed.
+      - name: Report the Gateway images under test
+        if: always() && matrix.release != '' && steps.u2.outputs.tag != ''
+        env:
+          RELEASE: ${{ matrix.release }}
+          TAG: ${{ steps.u2.outputs.tag }}
+        run: |
+          registry=registry.wso2.com/wso2-api-platform
+          {
+            echo "### Gateway $RELEASE under test: update level \`$TAG\`"
+            echo
+            echo "| Image | Digest |"
+            echo "|---|---|"
+            for image in gateway-controller gateway-runtime; do
+              digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$registry/$image:$TAG" 2>/dev/null | sed 's/.*@//' || true)"
+              echo "| \`$image:$TAG\` | \`${digest:-not pulled}\` |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Gateway $RELEASE U2::The suite ran against Gateway image tag $TAG"
 
       # always(), and per leg: a failing run is exactly when the container logs are needed,
       # and each leg's artifact name must be unique or upload-artifact rejects the second.

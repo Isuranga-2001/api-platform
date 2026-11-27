@@ -1409,6 +1409,53 @@ func TestDefinitionWithConfigVersion(t *testing.T) {
 	require.Equal(t, "/api/admin/v1/health", definition.Health.Path)
 }
 
+func TestDefinitionWithUpdateLevelRelease(t *testing.T) {
+	definition := &Definition{
+		Name:   "gateway",
+		Image:  ImageRef{Ref: "gateway:current"},
+		Health: &HealthCheck{Endpoint: "admin", Path: "/health/current", ExpectStatus: 200, Timeout: time.Minute, Interval: time.Second},
+		VersionedHealth: map[string]HealthCheck{
+			"3.4.5": {Endpoint: "admin", Path: "/health/3.4.5", ExpectStatus: 200, Timeout: time.Minute, Interval: time.Second},
+		},
+		Config: &ConfigInjection{
+			BaseConfigPath: "config/current.toml",
+			Versioned:      map[string]ConfigProfile{"3.4.5": {BaseConfigPath: "resources/3.4.5/config.toml"}},
+		},
+	}
+
+	updated, err := definition.WithReleaseVersion("3.4.5.6")
+	require.NoError(t, err)
+	require.Equal(t, "gateway:3.4.5.6", updated.Image.Ref, "the image keeps the full update-level tag")
+	require.Equal(t, "resources/3.4.5/config.toml", updated.Config.BaseConfigPath)
+	require.Equal(t, "/health/3.4.5", updated.Health.Path)
+
+	_, err = definition.WithReleaseVersion("3.9.9.1")
+	require.ErrorContains(t, err, `no profile for version "3.9.9"`)
+}
+
+func TestReleaseContractVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		want    string
+	}{
+		{name: "update-level tag", version: "3.4.5.6", want: "3.4.5"},
+		{name: "update-level tag with surrounding space", version: " 3.4.5.6 ", want: "3.4.5"},
+		{name: "release", version: "3.4.5", want: "3.4.5"},
+		{name: "source version", version: "3.4.5-SNAPSHOT", want: "3.4.5-SNAPSHOT"},
+		{name: "latest", version: "latest", want: "latest"},
+		{name: "empty", version: "", want: ""},
+		{name: "empty part", version: "3.4.5.", want: "3.4.5."},
+		{name: "non-numeric part", version: "3.4.5.rc1", want: "3.4.5.rc1"},
+		{name: "five parts", version: "3.4.5.6.7", want: "3.4.5.6.7"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, ReleaseContractVersion(tt.version))
+		})
+	}
+}
+
 func TestConfigAndFileValidation(t *testing.T) {
 	t.Run("valid configuration passes", func(t *testing.T) {
 		d := controllerLike()

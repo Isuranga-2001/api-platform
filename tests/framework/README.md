@@ -300,6 +300,16 @@ management paths, and compatibility selection. For example, the command above pu
 `registry.example/test-gateway/gateway-runtime:1.1.0` and
 `registry.example/test-gateway/gateway-builder:1.1.0`.
 
+`-gateway-version` also takes an update-level tag (for example `1.2.0.5`). The images are pulled
+at that tag; configuration and runner selectors follow its release (`1.2.0`).
+
+```sh
+go test -gateway-version 1.2.0.5 -host registry.wso2.com/wso2-api-platform -blocks gateway-core/sqlite
+```
+
+The registry needs a `docker login` first. A runner pinned to a release runs on every update
+level of it, so it asserts the release's behaviour.
+
 `-gateway-version latest` pulls the images that the `gateway-images` job of `daily-builds.yml`
 publishes every day at 03:00 UTC from `main`, and whenever it is started by hand with the
 `gateway` component (`gateway-controller`, `gateway-runtime` and `gateway-builder`). Each is a single

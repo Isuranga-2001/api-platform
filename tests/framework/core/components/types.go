@@ -423,15 +423,32 @@ func (d *Definition) WithConfigVersion(version string) (*Definition, error) {
 	return &out, nil
 }
 
-// WithReleaseVersion returns a copy whose image, configuration, and readiness
-// contracts match the supplied released image version.
+// ReleaseContractVersion maps an update-level tag (1.2.3.4) to its release (1.2.3). Any other
+// version is returned trimmed.
+func ReleaseContractVersion(version string) string {
+	version = strings.TrimSpace(version)
+	parts := strings.Split(version, ".")
+	if len(parts) != 4 {
+		return version
+	}
+	for _, part := range parts {
+		if part == "" || strings.Trim(part, "0123456789") != "" {
+			return version
+		}
+	}
+	return strings.Join(parts[:3], ".")
+}
+
+// WithReleaseVersion returns a copy using the image at version, with the configuration and
+// health check of the release that version follows.
 func (d *Definition) WithReleaseVersion(version string) (*Definition, error) {
+	contract := ReleaseContractVersion(version)
 	updated := d.WithImageVersion(version)
-	updated, err := updated.WithConfigVersion(version)
-	if err != nil || updated == nil || strings.TrimSpace(version) == "" {
+	updated, err := updated.WithConfigVersion(contract)
+	if err != nil || updated == nil || contract == "" {
 		return updated, err
 	}
-	health, ok := updated.VersionedHealth[strings.TrimSpace(version)]
+	health, ok := updated.VersionedHealth[contract]
 	if !ok {
 		return updated, nil
 	}
